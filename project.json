@@ -23,7 +23,7 @@
     "removeOpenCv": true,
     "unusedResources": false
   },
-  "packageName": "com.zzliux.assttyysngfull936",
+  "packageName": "com.renvy.assttyysng",
   "permissionConfig": {
     "requestListOnStartup": [
       "android.permission.WRITE_EXTERNAL_STORAGE"
@@ -31,7 +31,7 @@
   },
   "scripts": {},
   "versionCode": 1,
-  "versionName": "0.0.2.dev",
+  "versionName": "0.0.1.dev",
   "ignore": [
     "devServer",
     ".github",
