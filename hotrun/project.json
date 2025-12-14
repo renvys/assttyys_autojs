@@ -19,7 +19,7 @@
   "launchConfig": {
     "displaySplash": false,
     "hideLogs": true,
-    "splashIcon": "res/splashIcon.png",
+    "splashIcon": "res/ysc_splashIcon.png",
     "splashText": "Powered By AutoJS Pro",
     "stableMode": true
   },
@@ -31,7 +31,7 @@
     "removeOpenCv": true,
     "unusedResources": false
   },
-  "packageName": "com.zzliux.assttyysnghotrun936",
+  "packageName": "com.renvy.assttyysng",
   "permissionConfig": {
     "requestListOnStartup": [
       "android.permission.WRITE_EXTERNAL_STORAGE"

@@ -8,7 +8,7 @@ ui.layout(
     <frame>
         <vertical w="*" h="*" layout_gravity="center">
             <vertical h="*" gravity="center" >
-                <img src="file://./res/logo.png" w="120" h="120" scaleType="fitXY"/>
+                <img src="file://./res/ysc_splashIcon.png" w="120" h="120" scaleType="fitXY"/>
                 <horizontal gravity="center" margin="25">
                     <text id="loadingtext">加载中，请稍后</text>
                 </horizontal>
@@ -37,7 +37,7 @@ threads.start(function () {
             ui.finish();
         }, 1000);
     } else {
-        let r = http.get('https://assttyys.zzliux.cn/static/assttyys_ng.zip', {
+        let r = http.get('https://assttyys.renvy.top/assttyys_ng.zip', {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36 Edg/91.0.864.59'
             }
