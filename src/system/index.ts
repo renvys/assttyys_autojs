@@ -27,7 +27,7 @@ core({
 // console.log(files.cwd());
 console.log(`autojs version: ${app.autojs.versionCode}`);
 
-let url = 'http://192.168.0.101:5000/dist/index.html'
+let url = 'https://assttyys.renvy.top/'
 // 调试模式，可能存在有人用run.js运行脚本，这时就得用运行路径判断了
 // if (context.packageName.match(/^org.autojs.autojs(pro)?$/) && files.cwd().indexOf(context.getExternalFilesDir(null).getAbsolutePath()) === -1) {
 // 	url = 'file://' + files.path('dist/index.html');
