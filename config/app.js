@@ -41,16 +41,11 @@ const router = new Router();
     });
 
     app.use(router.routes());
-    const PORT = Number(process.env.ASSTTYYS_DEV_PORT || 5000);
-    app.listen(PORT, () => {
+    app.listen(2516, () => {
         const ipList = getLocalIP();
         console.log('访问地址：');
         ipList.forEach(ip => {
-            console.log(`http://${ip}:${PORT}`);
-        });
-        console.log('index.html：');
-        ipList.forEach(ip => {
-            console.log(`http://${ip}:${PORT}/dist/index.html`);
+            console.log(`http://${ip}:2516`);
         });
         console.log('\n');
     });

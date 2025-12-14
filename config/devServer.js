@@ -96,7 +96,6 @@ async function listAll(src) {
 }
 
 let count = 0;
-const PORT = Number(process.env.ASSTTYYS_DEV_PORT || 5000);
 class DevServer {
     apply(compiler) {
         compiler.hooks.done.tap('DevServer', (stats) => {
@@ -109,12 +108,10 @@ class DevServer {
                     console.log('代码已发生变更，请重新加载运行');
                 }
                 if (count === 1) {
-                    app.listen(PORT, () => {
+                    app.listen(2516, () => {
                         const ipList = getLocalIP();
                         console.log('\n\n\nassttyys debug player 加载/日志地址:');
-                        console.log(ipList.map(ip => `http://${ip}:${PORT}`).join('\n'));
-                        console.log('\nindex.html 访问地址:');
-                        console.log(ipList.map(ip => `http://${ip}:${PORT}/dist/index.html`).join('\n'));
+                        console.log(ipList.map(ip => `http://${ip}:2516`).join('\n'));
                     });
                 }
             }, 500);
