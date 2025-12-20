@@ -332,16 +332,14 @@ export class Func316 implements IFuncOrigin {
 		desc: [
 			1280, 720,
 			[
-				[right, 1203, 30, 0xd9e7f4],
-				[right, 1203, 34, 0xc8dbf1],
-				[right, 1207, 32, 0xd0e4f5],
-				[right, 1220, 32, 0xc8d4ec],
-				[right, 1211, 32, 0xccdaec],
-				[right, 1202, 36, 0xb7ccec],
+				[right, 1206, 31, 0xd2e7f7],
+				[right, 1223, 32, 0xd1dced],
+				[right, 1180, 26, 0xe3e3f1],
+				[right, 1146, 30, 0xcad6e9],
 			]
 		],
 		oper: [
-			[center, 1280, 720, 1130, 19, 1232, 43, 500],
+			[center, 1280, 720, 1140, 24, 1215, 40, 500],
 		]
 	}, { // 21 使用极的双倍
 		desc: [
@@ -508,6 +506,24 @@ export class Func316 implements IFuncOrigin {
 		oper: [
 			[center, 1280, 720, 943, 641, 986, 685, 1000],
 		]
+	}, { // 32 ocr识别柔风
+		desc: [1280, 720,
+			[
+				[right, 949, 642, 0x9bc0ee],
+				[right, 986, 637, 0x808986],
+				[right, 982, 666, 0x444e69],
+				[right, 946, 662, 0x57668e],
+				[right, 988, 678, 0xa9975b],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 150, 331, 280, 375, 1000], // ocr识别区域1
+			[center, 1280, 720, 407, 330, 573, 375, 1000], // ocr识别区域2
+			[center, 1280, 720, 679, 324, 841, 375, 1000], // ocr识别区域3
+			[center, 1280, 720, 170, 580, 270, 610, 1000], // ocr识别后点击区域1
+			[center, 1280, 720, 440, 580, 540, 610, 1000], // ocr识别后点击区域2
+			[center, 1280, 720, 710, 580, 820, 610, 1000], // ocr识别后点击区域3
+		]
 	}];
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
 
@@ -534,21 +550,16 @@ export class Func316 implements IFuncOrigin {
 			operator: [{ desc: thisOperator[4].desc }]
 		})) {
 			if (thisScript.global.d6RouFeng < 5) {//  柔风达标前选buff
-				const point = thisScript.findMultiColor('六道椒图_升级buff');
-				if (point) {//  有升级按钮_选择升级
-					const oper = [[
-						point.x - 40,
-						point.y + 410,
-						point.x + 70,
-						point.y + 440,
-						500
-					]];
-					thisScript.regionClick(oper);
-					thisScript.global.d6RouFeng++;
-					log('当前柔风数量:' + thisScript.global.d6RouFeng);
-					return true;
+				for (let i = 0; i < 3; i++) {
+					const temp = thisScript.findText('风', 0, thisOperator[32].oper[i], '包含');
+					if (temp.length > 0) {
+						thisScript.regionClick([thisOperator[32].oper[i + 3]]);
+						thisScript.global.d6RouFeng++;
+						log('当前柔风数量:' + thisScript.global.d6RouFeng);
+						return true;
+					}
 				}
-				else if (thisScript.oper({
+				if (thisScript.oper({
 					id: 316,
 					name: '六道椒图_低级buff',
 					operator: [thisOperator[25]]
