@@ -345,10 +345,14 @@ export class Func503 implements IFuncOrigin {
 		desc: [
 			1280, 720,
 			[
-				[center, 738, 324, 0x979693],
-				[center, 738, 349, 0x999595],
-				[center, 740, 247, 0xb7b0af],
-				[center, 754, 302, 0xaba896],
+				// [center, 738, 324, 0x979693],
+				// [center, 738, 349, 0x999595],
+				// [center, 740, 247, 0xb7b0af],
+				// [center, 754, 302, 0xaba896],
+				[right, 737, 225, 0x887f7c],
+				[right, 742, 206, 0x70655e],
+				[right, 733, 208, 0x796d68],
+				[right, 737, 232, 0x908784],
 			]
 		]
 	}, {

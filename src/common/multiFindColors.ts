@@ -1288,6 +1288,14 @@ const multiFindColors: IMultiFindColorsOrigin = {
 					[left, 282, 271, 0xf7e6c4]
 				]
 			],
+			[1280, 720,  // 龙珏庭院
+				[
+					[left, 181, 205, 0xffe9c8],
+					[left, 193, 208, 0xffe9bd],
+					[left, 184, 229, 0xbca07b],
+					[left, 187, 199, 0x565570],
+				]
+			]
 		]
 	},
 	'金币妖怪_金币妖怪字样': {

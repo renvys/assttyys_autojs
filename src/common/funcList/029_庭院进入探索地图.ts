@@ -2,7 +2,7 @@ import { Script } from '@/system/script';
 import { IFuncOrigin, IFuncOperatorOrigin, IFuncOperator } from '@/interface/IFunc';
 // const normal = -1; //定义常量
 const left = 0;
-// const center = 1;
+const center = 1;
 // const right = 2;
 
 export class Func029 implements IFuncOrigin {
@@ -23,7 +23,18 @@ export class Func029 implements IFuncOrigin {
 	}, {
 		// 庭院已打开菜单，另另外一种图标
 		desc: '庭院已打开菜单_另另外一种图标'
-	}]
+	}, { // 4 龙珏庭院_探索灯笼
+		desc: [1280, 720,
+			[
+				[left, 0, 0, 0x9bc0ee], // 随便填的，为了不报错
+			]
+		],
+		oper: [
+			[center, 1280, 720, 550, 130, 600, 180, 1000], // ocr识别区域1
+			[center, 1280, 720, 559, 142, 583, 175, 1000], // ocr识别后点击区域1
+		]
+	}
+	]
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
 		if (thisScript.oper({
 			name: '庭院判断',
@@ -45,6 +56,11 @@ export class Func029 implements IFuncOrigin {
 				thisScript.regionClick(oper);
 				return true;
 			} else {
+				const temp = thisScript.findText('探', 0, thisOperator[4].oper[0], '包含');
+				if (temp.length > 0) {
+					thisScript.regionClick([thisOperator[4].oper[1]]);
+					return true;
+				}
 				return false
 			}
 		}
