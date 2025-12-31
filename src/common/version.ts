@@ -1441,11 +1441,17 @@ export const versionList = [{
 	version: '20251213_01',
 	desc: '准备功能适配战斗主题【凛霜寒雪、春缕含青、蝶寻花踪、雅乐之邦、莲华圣域、笼梦之境、辰烁奇夜、流焰蝶舞】'
 }, {
-	version: '20251213_02',
+	version: '20251213_01',
 	desc: 'fix: 修复准备功能使用战斗主题时点击准备和切换手动状态失效'
 }, {
 	version: '20251225_01',
 	desc: 'fix: 506添加首领退治开关，适配会长副会长场景'
+}, {
+	version: '20251229_01',
+	desc: 'fix: 适配新巅峰赛斗技界面，修复逢魔 极逻辑'
+}, {
+	version: '20251231_01',
+	desc: 'fix: 适配UI调整(或许还有页面没调整,道馆狭间等等,有问题群里反馈)，优化六道椒图，柔风'
 }];
 
 export default versionList[versionList.length - 1].version;
