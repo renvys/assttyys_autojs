@@ -143,7 +143,7 @@ export class Func999 implements IFuncOrigin {
 		) {
 			const point = thisScript.findMultiColor('阴阳寮_奖励体力');
 
-			if (point) {
+			if (point && point.x >= 235) { // x>=235 防止点到寮活动
 				console.log('查找阴阳寮_奖励体力成功');
 				const oper = [
 					[point.x - 5, point.y - 5, point.x + 5, point.y + 5, 1200],

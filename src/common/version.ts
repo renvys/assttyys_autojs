@@ -1473,6 +1473,9 @@ export const versionList = [{
 }, {
 	version: '20260108_01',
 	desc: 'fix: 修复道馆',
+}, {
+	version: '20260110_01',
+	desc: 'fix: 修复寄样点击体力点到寮活动',
 }];
 
 export default versionList[versionList.length - 1].version;
