@@ -2132,7 +2132,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 		],
 	},
 	'六道椒图_事件': {
-		region: [left, 1280, 720, 79, 86, 1020, 631],
+		region: [left, 1280, 720, 79, 230, 1020, 631],
 		desc: [
 			[ // 神秘
 				1280, 720,
