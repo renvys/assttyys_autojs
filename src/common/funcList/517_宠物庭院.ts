@@ -9,6 +9,15 @@ export class Func517 implements IFuncOrigin {
 	id = 517;
 	name = '宠物庭院';
 	desc = '宠物庭院喂猫喂狗';
+	config = [{
+		desc: '结束后切换方案',
+		config: [{
+			name: 'next_scheme',
+			desc: '先切换至返回庭院，再由返回庭院切换至配置的目标方案',
+			type: 'scheme',
+			default: '__停止脚本__',
+		}]
+	}];
 	operator: IFuncOperatorOrigin[] = [
 		{	// 页面是否为庭院且能识别宠物屋(菜单已展开)另一种图标 御祝图标 只支持默认庭院皮肤与默认装饰
 			desc:
@@ -19,26 +28,14 @@ export class Func517 implements IFuncOrigin {
 						[center, 451, 631, 0xe8e4e1],
 						[center, 673, 651, 0xdb8b3f],
 						[right, 1034, 448, 0xfff1be],
-						[right, 1084, 450, 0x241738],
 						[right, 1020, 448, 0x302552],
 					]
 				],
 			oper: [
-				[right, 1280, 720, 1022, 420, 1080, 464, 1200]  //  点击宠物屋
+				[center, 1280, 720, 1020, 441, 1040, 461, 1000],  //  点击宠物屋
 			]
 		}, {	// 页面是否为庭院且能识别宠物屋(菜单未展开) 只支持默认庭院皮肤与默认装饰
-			desc:
-				[1280, 720,
-					[
-						[right, 1226, 47, 0xcda47a],
-						[right, 1157, 45, 0xb39671],
-						[center, 389, 65, 0xfbc573],
-						[right, 1207, 637, 0xdfd1cb],
-						[right, 1034, 448, 0xfff1be],
-						[right, 1084, 450, 0x241738],
-						[right, 1020, 448, 0x302552],
-					]
-				]
+			desc: '页面是否为庭院_菜单未展开_只支持默认庭院皮肤与默认装饰'
 		}, {	// 页面是否为庭院且能识别宠物屋(菜单已展开) 只支持默认庭院皮肤与默认装饰
 			desc:
 				[1280, 720,
@@ -146,7 +143,6 @@ export class Func517 implements IFuncOrigin {
 						[right, 1149, 637, 0xc0bab4],
 						[left, 118, 648, 0x3d2c1c],
 						[left, 142, 97, 0x4c3120],
-						[left, 198, 95, 0xd4ccc7],
 					]
 				],
 			oper: [
@@ -158,15 +154,15 @@ export class Func517 implements IFuncOrigin {
 				[
 					1280, 720,
 					[
-						[right, 1260, 670, 0x9e6830],
-						[right, 1062, 698, 0x6b4332],
-						[right, 992, 672, 0xfbefe3],
-						[center, 954, 698, 0x6b4232],
-						[right, 1202, 682, 0x946241],
-						[left, 34, 666, 0xd4c4a3],
-						[left, 66, 42, 0xd5c3a1],
-						[center, 378, 548, 0xe57a52],
-						[center, 835, 386, 0x9c9c7a],
+						[right, 990, 668, 0xfbf0e4],
+						[right, 1118, 671, 0x6b837b],
+						[right, 1258, 664, 0x9e6831],
+						[right, 829, 338, 0x272047],
+						[center, 345, 519, 0x2e3aa0],
+						[center, 349, 562, 0x723a20],
+						[center, 376, 559, 0x794122],
+						[right, 823, 390, 0x6b3420],
+						[right, 849, 389, 0x784022],
 					]
 				]
 		}, {    //  式神选择弹窗
@@ -185,22 +181,34 @@ export class Func517 implements IFuncOrigin {
 			oper: [
 				[right, 1280, 720, 975, 57, 1004, 84, 1200]
 			]
-		}, {	// 页面是否为庭院且能识别宠物屋(菜单未展开) 只支持默认庭院皮肤与默认装饰
-			desc:
-				[1280, 720,
-					[
-						[right, 1223, 658, 0xdac9c4],
-						[right, 1155, 41, 0xd6b187],
-						[center, 451, 631, 0xe6e3e1],
-						[center, 683, 657, 0xda6b29],
-						[right, 1034, 448, 0xeeeabd],
-						[right, 1084, 450, 0x211440],
-						[right, 1020, 448, 0x302552],
-					]
+		}, {    //  师徒界面
+			desc: [1280, 720,
+				[
+					[left, 177, 540, 0x3f3333],
+					[left, 159, 581, 0x161313],
+					[center, 383, 600, 0x472918],
+					[center, 419, 135, 0x896955],
+					[center, 533, 128, 0x312724],
 				]
-		}];
+			],
+			oper: [
+				[center, 1280, 720, 21, 16, 67, 56, 1000],
+			]
+		}
+	];
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
+		// 其次检测是否已投食，如果是则返回庭院
+		if (thisScript.oper({
+			id: 517,
+			name: '检测_已投食',
+			operator: [thisOperator[9]]
+		})) {
+			thisScript.superGlobal.next_scheme_name = thisScript?.scheme?.config['517']?.next_scheme as string;
+			thisScript.rerun('返回庭院');
+			return;
+		}
 
+		// 然后检测是否在庭院
 		if (thisScript.oper({
 			id: 517,
 			name: '页面是否为庭院且能识别宠物屋',
@@ -210,8 +218,6 @@ export class Func517 implements IFuncOrigin {
 				desc: thisOperator[1].desc
 			}, {
 				desc: thisOperator[2].desc
-			}, {
-				desc: thisOperator[11].desc
 			}]
 		})) {
 			return thisScript.oper({
@@ -222,24 +228,16 @@ export class Func517 implements IFuncOrigin {
 				}]
 			});
 		}
-
 		if (thisScript.oper({
 			id: 517,
 			name: '页面为宠物小屋',
-			operator: [thisOperator[3], thisOperator[5], thisOperator[6], thisOperator[7], thisOperator[8], thisOperator[10]]
+			operator: [thisOperator[3], thisOperator[5], thisOperator[6], thisOperator[7]
+				, thisOperator[8], thisOperator[10], thisOperator[11]]
 		})) {
 			return true;
 		}
 
-		if (thisScript.oper({
-			id: 517,
-			name: '检测_已投食',
-			operator: [thisOperator[9]]
-		})) {
-			const next_scheme = '返回庭院';
-			thisScript.rerun(next_scheme);
-		}
-
+		// 最后检测宠物后庭
 		if (thisScript.oper({
 			id: 517,
 			name: '检测_宠物后庭',
@@ -247,7 +245,6 @@ export class Func517 implements IFuncOrigin {
 				desc: thisOperator[4].desc
 			}]
 		})) {
-
 			// 做延时检测 防止登陆后的弹窗
 			if (thisScript.global.checked_yard_count >= 6) {
 				thisScript.global.checked_yard_count = 0;
@@ -259,7 +256,6 @@ export class Func517 implements IFuncOrigin {
 				} else {
 					thisScript.global.checked_yard_count += 1;
 				}
-
 				return thisScript.oper({
 					id: 517,
 					name: '检测_宠物后庭',
@@ -273,5 +269,4 @@ export class Func517 implements IFuncOrigin {
 		return false;
 	}
 }
-
 export default new Func517();

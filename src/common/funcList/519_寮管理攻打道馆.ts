@@ -27,6 +27,11 @@ export class Func519 implements IFuncOrigin {
 			type: 'integer',
 			default: 0,
 		}, {
+			name: 'max_people',
+			desc: '忽略高于X的‘人数’',
+			type: 'integer',
+			default: 999,
+		}, {
 			name: 'day',
 			desc: '星期567不进入',
 			type: 'switch',
@@ -55,7 +60,7 @@ export class Func519 implements IFuncOrigin {
 				[right, 1185, 658, 0x46a774],
 				[left, 88, 618, 0xc1b8aa],
 				[left, 189, 637, 0x777a83],
-				[left, 35, 52, 0xf0f5fb],
+				[left, 47, 37, 0xf5e2a3],
 			]
 		],
 		oper: [
@@ -140,8 +145,7 @@ export class Func519 implements IFuncOrigin {
 		],
 		oper: [
 			[center, 1280, 720, 260, 615, 311, 661, 1000],
-			[center, 1280, 720, 762, 414, 881, 457, 5000], // 建立道馆_确认
-			[center, 1280, 720, 1171, 106, 1224, 143, 1000], // 建立道馆_关闭详细
+			[center, 1280, 720, 762, 414, 881, 457, 1000], // 建立道馆_确认
 		]
 	}, { // 8 道馆中的0次机会
 		desc: [
@@ -166,7 +170,35 @@ export class Func519 implements IFuncOrigin {
 				[right, 689, 651, 0xeb8701],
 			]
 		],
-	}
+	}, { // 10 我的道馆界面
+		desc: [1280, 720,
+			[
+				[left, 113, 79, 0x563a2f],
+				[center, 340, 79, 0x51352b],
+				[right, 1195, 126, 0xe9d3ce],
+				[left, 152, 523, 0xf3b25e],
+				[left, 151, 605, 0xf3b25e],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 1179, 110, 1216, 143, 1000],
+		]
+	}, { // 11 今日挑战成功
+		desc: [
+			1280, 720,
+			[
+				[center, 518, 653, 0xddd9c8],
+				[center, 533, 650, 0xdedac9],
+				[center, 558, 649, 0xe8e4d2],
+				[center, 577, 653, 0xc1beaf],
+				[center, 599, 650, 0xbdbbad],
+				[center, 622, 648, 0xe2decd],
+				[center, 644, 649, 0x9d9c91],
+				[center, 666, 649, 0xbab8aa],
+				[center, 690, 648, 0xb8b6a7],
+			]
+		]
+	},
 	];
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
 		const now = new Date();
@@ -181,18 +213,17 @@ export class Func519 implements IFuncOrigin {
 		if (thisScript.oper({
 			id: 519,
 			name: '当日机会为0',
-			operator: [thisOperator[8], thisOperator[9]]
+			operator: [thisOperator[8], thisOperator[9], thisOperator[11]]
 		})) {
 			thisScript.myToast('两次机会用光');
-			thisScript.doPush(thisScript, { text: '两次机会用光', before() { thisScript.myToast('脚本即将停止，正在上传数据'); } });
-			thisScript.stop();
+			thisScript.rerun('返回庭院');
 			sleep(2000);
 			return true;
 		}
 		if (thisScript.oper({
 			id: 519,
 			name: '检测_寮活动神社',
-			operator: [thisOperator[0], thisOperator[7]]
+			operator: [thisOperator[0], thisOperator[7], thisOperator[10]]
 		})) {
 			return true;
 		}
@@ -295,6 +326,9 @@ export class Func519 implements IFuncOrigin {
 						result[i] = 0;
 					}
 					if (result[i] < thisConf.people) {
+						result[i] = 0;
+					}
+					if (result[i] > thisConf.max_people) {
 						result[i] = 0;
 					}
 				}

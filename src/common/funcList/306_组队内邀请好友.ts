@@ -9,7 +9,7 @@ const right = 2;
 export class Func306 implements IFuncOrigin {
 	id = 306;
 	name = '组队内邀请好友';
-	desc = '组队界面邀请好友'
+	desc = '组队界面邀请好友(排在‘005挑战’前面)'
 	config = [{
 		desc: '',
 		config: [{
@@ -54,9 +54,9 @@ export class Func306 implements IFuncOrigin {
 			[
 				[center, 642, 3, 0x101011],
 				[left, 42, 38, 0xf7e8aa],
-				[center, 641, 52, 0x080c0a],
 				[center, 648, 571, 0x422c29],
-				[right, 1088, 254, 0xffffff]]
+				[right, 1064, 270, 0xfefefe]
+			]
 		],
 		oper: [
 			[center, 1280, 720, 1025, 194, 1145, 306, 500]
@@ -100,14 +100,13 @@ export class Func306 implements IFuncOrigin {
 			[
 				[center, 670, 4, 0x12181d],
 				[left, 42, 38, 0xf7e8aa],
-				[center, 642, 266, 0xfffef8],
 				[center, 568, 427, 0x534a55],
 				[center, 722, 432, 0x554d56],
-				[center, 642, 302, 0xdccab3],
+				[right, 646, 274, 0xfefefc],
 			]
 		],
 		oper: [
-			[right, 1280, 720, 1192, 613, 1251, 677, 1000], // 点击挑战
+			[center, 1280, 720, 336, 655, 407, 694, 1000], // 点击空白
 			[right, 1280, 720, 603, 223, 675, 278, 1000], // 点击二号位
 		]
 	}, { // 5 战斗界面
@@ -154,22 +153,20 @@ export class Func306 implements IFuncOrigin {
 			]
 		],
 		oper: [
-			[center, 1280, 720, 473, 90, 564, 137, 1000],
+			[center, 1280, 720, 364, 104, 447, 135, 1000],
 			[center, 1280, 720, 592, 90, 680, 136, 1000],
 		]
 	}, { // 9 队友详细
-		desc: [
-			1280, 720,
+		desc: [1280, 720,
 			[
-				[center, 859, 561, 0xea7d67],
-				[center, 688, 566, 0xdd705d],
-				[right, 1059, 622, 0x48322e],
-				[right, 1041, 213, 0x412d25],
-				[right, 1044, 278, 0xc6b4a3],
+				[right, 1144, 564, 0x3c312d],
+				[right, 1152, 572, 0xcaac85],
+				[right, 1153, 583, 0xbda079],
+				[right, 1140, 584, 0xbea07a],
 			]
 		],
 		oper: [
-			[center, 1280, 720, 347, 544, 471, 612, 1000],
+			[center, 1280, 720, 1188, 186, 1260, 287, 1000],
 		]
 	}, { // 10 永生之海
 		desc: [
@@ -221,7 +218,34 @@ export class Func306 implements IFuncOrigin {
 		oper: [
 			[center, 1280, 720, 0, 609, 107, 719, 1000],
 		]
-	}]
+	}, { // 14 经验/金币组队
+		desc: [1280, 720,
+			[
+				[center, 402, 293, 0xfefefe],
+				[center, 440, 293, 0xfefefe],
+				[center, 420, 285, 0xfffefb],
+				[center, 421, 314, 0xfefefb],
+				[center, 556, 9, 0x12181d],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 396, 278, 447, 317, 1000],
+		]
+	}, { // 15 真蛇
+		desc: [1280, 720,
+			[
+				[center, 392, 110, 0x272420],
+				[center, 533, 109, 0x272420],
+				[right, 892, 124, 0x272420],
+				[right, 731, 119, 0x272420],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 598, 96, 683, 132, 1000],
+			[center, 1280, 720, 483, 97, 560, 131, 1000],
+		]
+	},
+	]
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
 		const thisConf = thisScript.scheme.config['306'];
 		const team_up_Frist = thisScript.global.team_up_Frist;
@@ -304,6 +328,20 @@ export class Func306 implements IFuncOrigin {
 					return;
 				}
 				return true;
+			} else if (thisScript.oper({ // 金币/经验组队
+				name: '判断是否邀请',
+				operator: [thisOperator[14]]
+			})) {
+				thisScript.global.team_up_Frist = false;
+				thisScript.global.team_up_lagTime = new Date();
+				thisScript.global.team_up_Time++;
+				if (team_up_Time < thisScript.global.team_up_Time) {
+					thisScript.doPush(thisScript, { text: '多次邀请未响应，或多次未识别到昵称，请查看。', before() { thisScript.myToast('脚本即将停止，正在上传数据'); } });
+					thisScript.stop();
+					sleep(3000);
+					return;
+				}
+				return true;
 			}
 		}
 		// 邀请界面_开始邀请好友
@@ -322,15 +360,13 @@ export class Func306 implements IFuncOrigin {
 				}) && thisConf.selectArea == '跨区') {
 					thisScript.regionClick(thisOperator[6].oper);
 					thisScript.keepScreen();
-				}
-				if (thisScript.oper({
+				} else if (thisScript.oper({
 					name: '组队类型_御魂',
 					operator: [{ desc: thisOperator[7].desc }]
 				}) && thisConf.selectArea == '跨区') {
 					thisScript.regionClick([thisOperator[7].oper[0]]);
 					thisScript.keepScreen();
-				}
-				if (thisScript.oper({
+				} else if (thisScript.oper({
 					name: '组队类型_探索',
 					operator: [{ desc: thisOperator[8].desc }]
 				})) {
@@ -340,6 +376,18 @@ export class Func306 implements IFuncOrigin {
 						thisScript.regionClick([thisOperator[8].oper[1]]);
 					}
 					thisScript.keepScreen();
+				} else if (thisScript.oper({
+					name: '组队类型_真蛇',
+					operator: [{ desc: thisOperator[15].desc }]
+				}) && thisConf.selectArea == '跨区') {
+					thisScript.regionClick([thisOperator[15].oper[0]]);
+					thisScript.keepScreen();
+				} else if (thisScript.oper({
+					name: '组队类型_真蛇',
+					operator: [{ desc: thisOperator[15].desc }]
+				}) && thisConf.selectArea == '好友') {
+					thisScript.regionClick([thisOperator[15].oper[1]]);
+					thisScript.keepScreen();
 				}
 			}
 			result = thisScript.findText('.+', 0, thisOperator[1].oper[0], stringCompareMode);
@@ -348,7 +396,7 @@ export class Func306 implements IFuncOrigin {
 				thisScript.global.team_up_Time++;
 				thisScript.regionClick([thisOperator[4].oper[0]]);
 				thisScript.global.team_up_lagTime = new Date(2000);
-				return false;
+				return true;
 			} else {
 				for (const i in result) {
 					console.log(`昵称历遍:${result[i].label}`)
@@ -369,7 +417,7 @@ export class Func306 implements IFuncOrigin {
 					thisScript.global.team_up_Time++;
 					thisScript.regionClick([thisOperator[4].oper[0]]);
 					thisScript.global.team_up_lagTime = new Date(2000);
-					return false;
+					return true;
 				}
 				toClickRegion && thisScript.regionClick([toClickRegion]);
 			}
@@ -396,7 +444,7 @@ export class Func306 implements IFuncOrigin {
 					thisScript.global.team_up_Time++;
 					thisScript.regionClick([thisOperator[4].oper[0]]);
 					thisScript.global.team_up_lagTime = new Date(2000);
-					return false;
+					return true;
 				} else {
 					for (const i in result) {
 						console.log(`昵称历遍:${result[i].label}`)
@@ -417,7 +465,7 @@ export class Func306 implements IFuncOrigin {
 						thisScript.global.team_up_Time++;
 						thisScript.regionClick([thisOperator[4].oper[0]]);
 						thisScript.global.team_up_lagTime = new Date(2000);
-						return false;
+						return true;
 					}
 					toClickRegionTwo && thisScript.regionClick([toClickRegionTwo]);
 				}

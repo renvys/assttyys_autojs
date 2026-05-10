@@ -56,8 +56,8 @@ export class Func016 implements IFuncOrigin {
 			[
 				[left, 137, 216, 0xddd6ce],
 				[left, 181, 631, 0xd7cdc6],
-				[right, 1209, 43, 0xeecccc],
-				[right, 1204, 520, 0xe8d5b0],
+				[right, 1209, 43, 0xe8d4cf],
+				[right, 1204, 530, 0xded3bd],
 				[right, 1087, 624, 0xebe5ce],
 				[right, 1205, 437, 0xa05437],
 			]
@@ -82,24 +82,24 @@ export class Func016 implements IFuncOrigin {
 		// 3 探索地图界面
 		desc: '探索地图界面',
 		oper: [
-			[center, 1280, 720, 641, 633, 701, 698, 1000],
+			[center, 1280, 720, 644, 646, 686, 681, 1000],
 		]
 	}, {
 		// 4 地鬼_挑战页面_极
-		desc: [
-			1280, 720,
+		desc: [1280, 720,
 			[
-				[center, 447, 138, 0x9a4e50],
-				[center, 475, 94, 0xdad1ca],
-				[right, 1208, 400, 0xbe643b],
-				[right, 1155, 581, 0xf1d8af],
-				[right, 1140, 621, 0x581819],
-				[left, 191, 612, 0xdcd6cf],
-				[center, 532, 82, 0x576891],
+				[center, 447, 138, 0x994a4e],
+				[center, 475, 94, 0xd9d1c9],
+				[right, 1208, 400, 0xc86a42],
+				[right, 1155, 581, 0xefd2a2],
+				[left, 191, 612, 0xdcd5cd],
+				[right, 1209, 44, 0xe8d4cf],
+				[center, 363, 86, 0xd6cdc5],
+				[left, 298, 117, 0x3b425e],
 			]
 		],
 		oper: [
-			[center, 1280, 720, 522, 52, 557, 81, 1200]		//	极转为普通
+			[center, 1280, 720, 279, 121, 308, 153, 1000], //	极转为普通
 		]
 	}, {
 		// 5
@@ -116,18 +116,12 @@ export class Func016 implements IFuncOrigin {
 		oper: [
 			[center, 1280, 720, 158, 118, 821, 626, 1000],
 		]
-	}, {
-		// 6 探索地图界面_含时空秘境
-		desc: '探索地图界面_含时空秘境',
-		oper: [
-			[center, 1280, 720, 737, 639, 801, 697, 1000],
-		]
 	}];
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
 		if (thisScript.oper({
 			id: 16,
 			name: '探索界面',
-			operator: [thisOperator[6], thisOperator[3]]
+			operator: [thisOperator[3]]
 		})) {
 			return true;
 		}
@@ -172,10 +166,8 @@ export class Func016 implements IFuncOrigin {
 
 			if (thisScript.global.dgCurNum === -1) {
 				thisScript.regionClick([thisOperator[2].oper[1]]);
-				const next_scheme = '返回庭院';
-				thisScript.rerun(next_scheme, {
-					next_scheme_name: thisScript.scheme.config['16'].next_scheme
-				});
+				thisScript.superGlobal.next_scheme_name = thisScript?.scheme?.config['16']?.next_scheme as string;
+				thisScript.rerun('返回庭院');
 				return;
 			}
 			const clickOper = thisOperator[0].oper[2 + thisScript.global.dgCurNum];

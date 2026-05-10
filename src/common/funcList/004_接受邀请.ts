@@ -3,7 +3,7 @@ import { IFuncOrigin, IFuncOperatorOrigin, IFuncOperator } from '@/interface/IFu
 
 // const normal = -1; //定义常量
 const left = 0;
-// const center = 1;
+const center = 1;
 const right = 2;
 
 export class Func004 implements IFuncOrigin {
@@ -13,16 +13,6 @@ export class Func004 implements IFuncOrigin {
 	config = [{
 		desc: '',
 		config: [{
-			name: 'exit',
-			desc: '对邀请提示不做动作并返回庭院，然后以下切换方案（用于当做判断条件）',
-			type: 'switch',
-			default: false,
-		}, {
-			name: 'next_scheme',
-			desc: '下一个方案',
-			type: 'scheme',
-			default: '通用准备退出',
-		}, {
 			name: 'teammate_exit',
 			desc: '队长退出后切换方案',
 			type: 'switch',
@@ -61,7 +51,10 @@ export class Func004 implements IFuncOrigin {
 				[left, 45, 257, 0xdd6a59],
 				[left, 79, 222, 0xe3d3c2],
 				[left, 14, 299, 0xf1be36],
-				[left, 176, 291, 0xefe5d6]]
+				[left, 176, 291, 0xefe5d6],
+				[center, 507, 273, 0xe7d8c2],
+				[center, 442, 233, 0xece0d1]
+			]
 		],
 		oper: [
 			[left, 1280, 720, 120, 239, 159, 273, 600]
@@ -91,28 +84,35 @@ export class Func004 implements IFuncOrigin {
 		oper: [
 
 		]
-	}];
+	}, { // 4 组队有探索奖励
+		desc: [1280, 720,
+			[
+				[left, 11, 132, 0x49352f],
+				[left, 61, 132, 0x49352f],
+				[left, 119, 132, 0x49352f],
+				[left, 19, 159, 0xe8d8bc],
+			]
+		],
+	},];
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
 		const thisConf = thisScript.scheme.config['4'];
+		if (thisScript.oper({
+			name: '组队界面奖励检测',
+			operator: [{ desc: thisOperator[4].desc }]
+		})) {
+			const point = thisScript.findMultiColor('组队探索_宝箱');
+			if (point) {
+				const oper = [[point.x, point.y, point.x + 5, point.y + 5, 500]];
+				thisScript.regionClick(oper);
+				return true;
+			}
+		}
 		if (thisConf && thisConf.teammate_exit && thisScript.oper({
 			id: 4,
 			name: '队长退出',
 			operator: [thisOperator[2], thisOperator[3]]
 		})) {
 			thisScript.rerun(thisConf.teammate_exit_next_scheme);
-			sleep(3000)
-			return true;
-		}
-		if (thisConf && thisConf.exit && thisScript.oper({
-			id: 4,
-			name: '邀请切换横幅',
-			operator: [{ desc: thisOperator[0].desc }, { desc: thisOperator[1].desc }]
-		})) {
-			const back_scheme = '返回庭院';
-			thisScript.rerun(back_scheme, {
-				next_scheme_name: thisConf.next_scheme,
-				untransmit: true
-			})
 			sleep(3000)
 			return true;
 		}

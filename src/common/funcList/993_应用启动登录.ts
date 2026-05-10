@@ -274,6 +274,8 @@ export class Func993 implements IFuncOrigin {
 					[center, 447, 465, 0xcbb59e],
 					[center, 582, 412, 0xdf6851],
 					[center, 782, 410, 0xf4b25f],
+					[right, 1153, 40, 0x594938], // 限制庭院背景
+					[right, 1220, 36, 0x574836], // 按理说只有重启游戏才有此选项
 				],
 			],
 			oper: [
@@ -440,6 +442,32 @@ export class Func993 implements IFuncOrigin {
 					[left, 122, 710, 0x885f36],
 				]
 			]
+		}, { // 26 关联手机
+			desc: [1280, 720,
+				[
+					[right, 997, 451, 0xe7cfb1],
+					[right, 1058, 491, 0xdec2a3],
+					[right, 1020, 536, 0xd7b17b],
+					[right, 876, 204, 0xe8e0d4],
+				]
+			],
+			oper: [
+				[center, 1280, 720, 968, 463, 1036, 522, 1000],
+			]
+		}, { // 27 关联手机确认框
+			desc: [1280, 720,
+				[
+					[center, 480, 488, 0xdf6851],
+					[center, 565, 515, 0xdf6851],
+					[right, 710, 488, 0xf3b25e],
+					[right, 692, 393, 0xf3b25e],
+					[right, 834, 429, 0xf3b25e],
+					[right, 802, 520, 0xf4b35d],
+				]
+			],
+			oper: [
+				[center, 1280, 720, 475, 483, 579, 523, 1000],
+			]
 		}
 	];
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
@@ -483,7 +511,6 @@ export class Func993 implements IFuncOrigin {
 					}
 					if (thisConf.scheme_switch_enabled) {
 						thisScript.rerun(thisConf.next_scheme);
-						sleep(3000);
 						return true;
 					} else {
 						thisScript.global.open_only_once = true;
@@ -723,7 +750,7 @@ export class Func993 implements IFuncOrigin {
 					thisOperator[1], thisOperator[2], thisOperator[3], thisOperator[6],
 					thisOperator[9], thisOperator[10], thisOperator[11], /* thisOperator[12],*/
 					thisOperator[14], thisOperator[15], thisOperator[17], thisOperator[20],
-					thisOperator[21]
+					thisOperator[21], thisOperator[26], thisOperator[27]
 				],
 			})) {
 				return true;
@@ -731,7 +758,7 @@ export class Func993 implements IFuncOrigin {
 
 			//	游戏区域状态不为空
 			if (thisScript.global.game_area) {
-				// 检测是否有皮肤广告	误触太多了，关了
+				// 检测是否有皮肤广告
 				const point = thisScript.findMultiColor('皮肤广告关闭按钮');
 				if (point) {
 					console.log('识别广告关闭按钮成功');
@@ -743,6 +770,14 @@ export class Func993 implements IFuncOrigin {
 
 			return false;
 		} else {
+			if (thisScript.oper({
+				id: 993,
+				name: '被顶号或断开连接',
+				operator: [thisOperator[3]]
+			})) {
+				thisScript.global.open_only_once = false;
+				return true;
+			}
 			return false;
 		}
 	}

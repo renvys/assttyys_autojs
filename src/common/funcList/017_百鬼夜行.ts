@@ -12,13 +12,6 @@ export class Func017 implements IFuncOrigin {
 	config = [{
 		desc: '',
 		config: [{
-			name: 'mode',
-			desc: '模式，快速模式用于清票，开始后以最快速度进行撒豆',
-			type: 'list',
-			data: ['快速模式', '普通模式'],
-			default: '普通模式',
-			value: null,
-		}, {
 			name: 'bossPosition',
 			desc: '选择第几个鬼王',
 			type: 'list',
@@ -86,18 +79,16 @@ export class Func017 implements IFuncOrigin {
 	}, { // 4 邀请好友
 		desc: [1280, 720,
 			[
-				[center, 170, 600, 0xc3b99e],
-				[center, 392, 156, 0xe7bc93],
-				[center, 391, 200, 0xd7bfae],
-				[center, 582, 208, 0xd7bfae],
-				[center, 886, 276, 0xeac9a0],
-				[center, 608, 277, 0xeac9a0],
-				[center, 1084, 202, 0xb1a29e],
-				[center, 1132, 590, 0x322518]]
+				[left, 153, 149, 0xe4b68e],
+				[left, 243, 153, 0x986349],
+				[center, 343, 155, 0xa26b4e],
+				[left, 156, 198, 0xd2b8a6],
+				[right, 711, 554, 0xd5bfac],
+			]
 		],
 		oper: [
-			[center, 1280, 720, 468, 233, 624, 550, 500],
-			[center, 1280, 720, 731, 229, 890, 563, 500],
+			[center, 1280, 720, 238, 236, 416, 539, 1000],
+			[center, 1280, 720, 510, 229, 684, 539, 1000],
 		]
 	}, { // 5
 		desc: [1280, 720,
@@ -112,7 +103,7 @@ export class Func017 implements IFuncOrigin {
 			[center, 1280, 720, 245, 444, 304, 522, 500], // 第一个怪物位置
 			[center, 1280, 720, 591, 429, 654, 504, 500], // 第二个怪物位置
 			[center, 1280, 720, 978, 460, 1046, 515, 500], // 第三个怪物位置
-			[center, 1280, 720, 1132, 562, 1210, 640, 9000], // 开始
+			[center, 1280, 720, 1132, 562, 1210, 640, 5000], // 开始
 		]
 	}, { // 6
 		desc: [1280, 720,
@@ -140,13 +131,42 @@ export class Func017 implements IFuncOrigin {
 		oper: [
 			[center, 1280, 720, 1084, 576, 1138, 628, 1500]
 		]
-	}];
+	}, { // 8 冰冻
+		desc: [1280, 720,
+			[
+				[right, 1273, 11, 0xd0dbdf],
+				[left, 4, 583, 0xe2e8ef],
+				[left, 104, 704, 0xbed2d5],
+				[right, 1144, 707, 0xcfdae7],
+				[right, 1259, 687, 0xb5bcbf],
+			]
+		],
+		oper: [
+			[center, 1280, 720, -1, -1, -1, -1, 1000]
+		]
+	}, { // 9 邀请好友
+		desc: [1280, 720,
+			[
+				[center, 170, 600, 0xc3b99e],
+				[center, 392, 156, 0xe7bc93],
+				[center, 391, 200, 0xd7bfae],
+				[center, 582, 208, 0xd7bfae],
+				[center, 886, 276, 0xeac9a0],
+				[center, 608, 277, 0xeac9a0],
+				[center, 1084, 202, 0xb1a29e],
+				[center, 1132, 590, 0x322518]]
+		],
+		oper: [
+			[center, 1280, 720, 468, 233, 624, 550, 500],
+			[center, 1280, 720, 731, 229, 890, 563, 500],
+		]
+	},];
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
 		const thisconf = thisScript.scheme.config['17'];
 		if (thisScript.oper({
 			id: 17,
 			name: '百鬼夜行_杂项_前',
-			operator: [thisOperator[3]]
+			operator: [thisOperator[8], thisOperator[3]]
 		})) {
 			return true
 		}
@@ -156,6 +176,16 @@ export class Func017 implements IFuncOrigin {
 			operator: [{
 				desc: thisOperator[4].desc,
 				oper: [thisOperator[4].oper[random(0, 1)]]
+			}]
+		})) {
+			thisScript.keepScreen(false);
+		}
+		if (thisScript.oper({
+			id: 17,
+			name: '百鬼夜行_邀请好友',
+			operator: [{
+				desc: thisOperator[9].desc,
+				oper: [thisOperator[9].oper[random(0, 1)]]
 			}]
 		})) {
 			thisScript.keepScreen(false);
@@ -183,27 +213,28 @@ export class Func017 implements IFuncOrigin {
 		})) {
 			return true;
 		}
-		if (thisconf && thisconf.mode === '快速模式') {
-			if (thisScript.oper({
-				id: 17,
-				name: '百鬼夜行_随机散豆_拖10豆',
-				operator: [{
-					desc: thisOperator[0].desc
-				}]
-			})) {
-				thisScript.regionSwipe(thisOperator[0].oper[0], thisOperator[0].oper[1], [100, 300], 200);
-				return true;
-			}
-			return thisScript.oper({
-				name: '百鬼夜行_随机散豆',
-				operator: [thisOperator[1]]
-			});
+		if (thisScript.oper({
+			id: 17,
+			name: '百鬼夜行_随机散豆_拖10豆',
+			operator: [{
+				desc: thisOperator[0].desc
+			}]
+		})) {
+			thisScript.regionSwipe(thisOperator[0].oper[0], thisOperator[0].oper[1], [100, 300], 200);
+			return true;
 		}
 		if (thisScript.oper({
 			id: 17,
 			name: '百鬼夜行_随机散豆',
 			operator: [{ desc: thisOperator[2].desc }]
 		})) {
+			const point = thisScript.findMultiColor('百鬼夜行_BUFF');
+			if (point) {
+
+				thisScript.global.xxxskill = 2;
+				thisScript.regionClick([[point.x, point.y, point.x + 15, point.y + 15, 500]]);
+				return true;
+			}
 			thisScript.regionClick(thisOperator[2].oper);
 			return true;
 		}

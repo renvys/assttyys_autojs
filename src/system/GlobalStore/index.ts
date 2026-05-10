@@ -45,14 +45,20 @@ export type globalRootType = {
 	narrow_state: Record<string, boolean>,   //  狭间暗域状态
 	narrow_time: number, // 狭间暗域自定义3D人物走路时等待时间
 	narrow_mode: boolean,
+	recruitCount?: number, // 招募点击计数
+	recruitClickedY?: number[], // 招募已点击的Y坐标
+	lastRecruitFinishTime?: number | null, // 招募完成点击的时间戳
+	recruitHasScrolled?: boolean, // 是否已翻页
 	liao_activity_page_flag: number,   //  寮活动翻页标记
-	liao_activity_Swith: Record<string, boolean>, // 寮活动记录
+	liao_activity_Switch: Record<string, boolean>, // 寮活动记录
+	liao_banquet_collect: boolean,   //  宴会筹备状态
+	liao_banquet_onGoing: boolean,   //  宴会进行状态
 	banquet_change_flag: boolean,   //  宴会轮换开关标识
 	gateOfHades_state: boolean,     //  阴门状态
 	team_up_lagTime: null | Date,    // 组队延时
 	team_up_Frist: boolean,  // 首次组队
 	xsOpened: boolean, // 是否打开过悬赏
-	xsFilter: Record<number, number>,
+	xsXieZuo: boolean, // 开始协作
 	intensify_lagTime: null | Date, // 强化延时
 	intensify_NumOT: number, // 强化计数
 	create_NumOT: number, // 创建队伍计数
@@ -72,14 +78,15 @@ export type globalRootType = {
 	qiling_Position: number[] | null;   //  契灵的地图位置
 	qiling_last: number | null;     //  契灵的上次类型
 	qiling_shop: boolean; // 契灵商店购买
+	qiling_ball: number; // 已购买的契灵球次数
 	opened_buff: boolean; // 是否已执行开启buff
 	closed_buff: boolean; // 是否已执行关闭buff
-	daily_collection: 'friend' | 'store' | 'courtyard';   //  每日奖励领取
 	huahezhan: boolean;//    是否已领取花合战
 	shangyushe: boolean;//    是否已上过预设
 	d6Loop: number;//     椒图事件点击循环数
 	d6RouFeng: number;//     椒图柔风实时buff数
 	upYuHun: boolean;//      强化御魂记录界面次数
+	upYuHunIni: boolean;//      强化御魂初设置
 	bgyxLastCapture: number; // 上次截图的时间戳
 	waitFight: boolean;//      等待分享鬼王被击杀
 	faXian_NumOT: number, // 点击发现鬼王计数
@@ -97,16 +104,13 @@ export type globalRootType = {
 	daoguan_team: boolean, // 道馆是否切换队伍
 	first_create_team: boolean, // 首次创建队伍
 	open_only_once: boolean, // 首次启动游戏
-	fight_switch_skill: boolean, // 三号位切换技能
 	flash_time: number, // 519刷新次数
-	HJosp: boolean, // 304 osp状态
-	HJmin: number, // 304 绘卷系统刷新CD
-	HJsec: number, // 304 绘卷系统刷新CD
 	fengNa: boolean, // 302奉纳
-	finght_time: number, // 320战斗时间
 	xxxskill: number, // 寻香行技能
 	MT_share: 'start' | 'back' | 'end', // 每周分享
+	MT_share_type: 'mumu' | 'phone', // 每周分享_类型
 	MT_liaoShop: 'start' | 'back' | 'end', // 寮商店购买
+	MT_liaoShopList: string[], // 寮商店购买_未购买列表
 	MT_shop: 'zhiBo' | 'jiShouWu' | 'miJuanWu' | 'zaHuoPu_teSu' | 'zaHuoPu_rongYu' | 'zaHuoPu_youQing' | 'zaHuoPu_xunZhang' | 'zaHuoPu_meiLi' | 'done', // 商店购买
 	zhiBoBack: boolean, // 直播间返回
 	shop_find: string[], // 商店购买_查找物品
@@ -114,8 +118,33 @@ export type globalRootType = {
 	zhenLvJu: boolean, // 珍旅居
 	shenKan: boolean, // 神龛
 	zhenShe: number, // 真蛇
+	miWenshare: boolean, // 秘闻分享
+	diGuishare: boolean, // 地鬼分享
+	shopShare: boolean, // 神秘商店分享
+	shopSharenName: string[] | null, // 商店分享昵称
 	sneak_level_open: boolean, // 选择层数
 	day_chouKa: boolean, // 每日抽卡
+	shiHe_jingYan: boolean, // 食盒经验领取上限
+	xianShiFengMo: number,
+	account_num: number, // 账号计数（用于点击位置）
+	valid_account_num: number, // 有效账号计数（实际完成功能的账号数）
+	account_double: boolean, // 安卓苹果双登录模式
+	account_state: 'login' | 'function' | 'logout',
+	function_Switch: Record<string, boolean | number>, // 小号功能记录
+	loop_add: boolean, // 循环增加
+	liao_cheak: number, // 寮活动判定
+	email_yuHun: number, // 邮箱御魂已满计数
+	runTime_2: number, // 留存2退出结算次数
+	fight_Switch: Record<string, boolean | number>, // 战斗内操作记录
+	xiaJian: Record<string, boolean | number>, // 战斗内切换记录
+	timestamp: number, // 全局时间戳
+	paiMing: number, // 排名
+	email_switch_enabled: boolean, // 邮箱切换
+	tuDi: Record<string, boolean | number>, // 徒弟
+	newAccount: Record<string, boolean | number>, // 新号
+	frist: boolean, // 上阵式神
+	chess: Record<string, boolean | number>,  // 下棋局数判定
+	chessShop: boolean, // 下棋商店
 
 }
 
@@ -166,13 +195,18 @@ export const globalRoot: globalRootType = {
 	narrow_state: undefined,
 	narrow_time: 0,
 	narrow_mode: false,
+	recruitCount: 0,
+	recruitClickedY: [],
+	lastRecruitFinishTime: null,
+	recruitHasScrolled: false,
 	liao_activity_page_flag: 0,
-	liao_activity_Swith: undefined,
+	liao_activity_Switch: undefined,
 	banquet_change_flag: false,
 	gateOfHades_state: false,
 	team_up_lagTime: null,
 	team_up_Frist: true,
 	xsOpened: false,
+	xsXieZuo: false,
 	intensify_lagTime: null,
 	intensify_NumOT: 0,
 	create_NumOT: 0,
@@ -191,14 +225,15 @@ export const globalRoot: globalRootType = {
 	preset_once_team_defaultNum: null,
 	qiling_Position: null,
 	qiling_last: null,
+	qiling_ball: 0,
 	opened_buff: false,
 	closed_buff: false,
-	daily_collection: 'friend',
 	huahezhan: true,
 	shangyushe: true,
 	d6Loop: 0,
 	d6RouFeng: 1,
 	upYuHun: false,
+	upYuHunIni: true,
 	bgyxLastCapture: undefined,
 	waitFight: true,
 	faXian_NumOT: 0,
@@ -216,17 +251,13 @@ export const globalRoot: globalRootType = {
 	daoguan_team: true,
 	first_create_team: false,
 	open_only_once: false,
-	fight_switch_skill: true,
 	flash_time: 0,
-	HJosp: null,
-	HJmin: null,
-	HJsec: null,
 	fengNa: false,
-	xsFilter: {},
-	finght_time: null,
 	xxxskill: 0,
 	MT_share: 'start',
+	MT_share_type: 'mumu',
 	MT_liaoShop: 'start',
+	MT_liaoShopList: null,
 	MT_shop: 'zhiBo',
 	zhiBoBack: false,
 	shop_find: null,
@@ -234,7 +265,47 @@ export const globalRoot: globalRootType = {
 	zhenLvJu: true,
 	shenKan: true,
 	zhenShe: 2,
+	miWenshare: true,
+	diGuishare: false,
+	shopShare: null,
+	shopSharenName: null,
 	sneak_level_open: true,
 	day_chouKa: true,
-	qiling_shop: false,
+	qiling_shop: true,
+	shiHe_jingYan: false,
+	liao_banquet_collect: false,
+	liao_banquet_onGoing: true,
+	xianShiFengMo: 0,
+	account_num: 0,
+	valid_account_num: 0,
+	account_double: null,
+	account_state: 'login',
+	function_Switch: null,
+	loop_add: true,
+	liao_cheak: -1,
+	email_yuHun: 0,
+	runTime_2: null,
+	fight_Switch: null,
+	xiaJian: null,
+	timestamp: 0,
+	paiMing: 0,
+	email_switch_enabled: null,
+	tuDi: null,
+	newAccount: null,
+	frist: true,
+	chess: null,
+	chessShop: true,
+}
+export type superGlobalRootType = {
+	liao_activity_Switch: Record<string, boolean>, // 寮活动记录
+	next_scheme_name: string, // 中转后的下个方案
+	daoguan_lose: boolean, // 记录道馆第一次失败
+	runTime: number, // 记录结界卡时间
+}
+
+export const superGlobalRoot: superGlobalRootType = {
+	liao_activity_Switch: undefined,
+	next_scheme_name: null,
+	daoguan_lose: true,
+	runTime: 0,
 }

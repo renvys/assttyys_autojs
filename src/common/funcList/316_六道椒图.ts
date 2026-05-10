@@ -489,22 +489,26 @@ export class Func316 implements IFuncOrigin {
 			]
 		],
 		oper: [
-			[center, 1280, 720, 141, 640, 141, 641, 1000],
-			[center, 1280, 720, 1130, 610, 1130, 611, 1000],
 			[center, 1280, 720, 354, 173, 371, 256, 1000],
 		]
 	}, { // 31 进入六道之门
+		desc: '探索地图界面',
+		oper: [
+			[center, 1280, 720, 936, 649, 977, 683, 1000],
+		]
+	}, { // 32 继续
 		desc: [1280, 720,
 			[
-				[right, 949, 642, 0x9bc0ee],
-				[right, 986, 637, 0x808986],
-				[right, 982, 666, 0x444e69],
-				[right, 946, 662, 0x57668e],
-				[right, 988, 678, 0xa9975b],
+				[right, 1125, 601, 0xfff3bd],
+				[right, 1142, 608, 0xffefad],
+				[right, 1147, 658, 0x8ba1b4],
+				[right, 1165, 632, 0x425163],
+				[right, 1175, 647, 0xffefb5],
+				[right, 1197, 651, 0xffe9ad],
 			]
 		],
 		oper: [
-			[center, 1280, 720, 943, 641, 986, 685, 1000],
+			[center, 1280, 720, 1133, 601, 1207, 653, 1000],
 		]
 	}, { // 32 ocr识别柔风
 		desc: [1280, 720,
@@ -532,10 +536,6 @@ export class Func316 implements IFuncOrigin {
 			name: '六道椒图_选事件',
 			operator: [{ desc: thisOperator[0].desc }, { desc: thisOperator[2].desc }]
 		}, 200)) {
-			// thisScript.regionClick([thisOperator[1].oper[thisScript.global.d6Loop]]);
-			// if (++thisScript.global.d6Loop > 2) {
-			// 	thisScript.global.d6Loop = 0;
-			// }
 			const p = thisScript.findMultiColor('六道椒图_事件');
 			if (p) {
 				thisScript.regionClick([[p.x - 40, p.y + 20, p.x + 40, p.y + 80, 200]])
@@ -642,7 +642,7 @@ export class Func316 implements IFuncOrigin {
 				thisOperator[9], thisOperator[10], thisOperator[12], thisOperator[13],
 				thisOperator[14], thisOperator[19], thisOperator[20], thisOperator[21],
 				thisOperator[22], thisOperator[26], thisOperator[27], thisOperator[28],
-				thisOperator[29], thisOperator[30], thisOperator[31],
+				thisOperator[29], thisOperator[30], thisOperator[31], thisOperator[32],
 			]
 		})) {
 			return true;

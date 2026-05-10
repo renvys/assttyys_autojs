@@ -204,6 +204,21 @@ export class Func508 implements IFuncOrigin {
 			oper: [
 				[center, 1280, 720, 579, 303, 702, 407, 300], //	点击逢魔首领
 			],
+		},
+		{ // 11 没有极难度的逢魔(歌姬胧车)
+			desc: [1280, 720,
+				[
+					[right, 1182, 649, 0xffffff],
+					[right, 930, 671, 0xddd2c1],
+					[right, 1022, 670, 0xbc4440],
+					[right, 1022, 655, 0x802933],
+					[right, 940, 674, 0xdbd1c0],
+					[left, 62, 671, 0xc89a7e],
+				]
+			],
+			oper: [
+				[center, 1280, 720, 1007, 660, 1036, 684, 1000],
+			]
 		}
 	];
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
@@ -273,6 +288,7 @@ export class Func508 implements IFuncOrigin {
 						],
 					}],
 				});
+				sleep(2000);
 
 				thisScript.oper({
 					name: '无法点击首领BOSS集结挑战，换一个首领_是否有寻找 逢魔·普通/极 按钮',
@@ -337,20 +353,29 @@ export class Func508 implements IFuncOrigin {
 			})
 		) {
 			if (thisScript.global.fm_kiss_boss_flag) {
-				thisScript.rerun('返回庭院', {
-					next_scheme_name: thisConf.next_scheme
-				});
+				thisScript.superGlobal.next_scheme_name = thisScript?.scheme?.config['508']?.next_scheme as string;
+				thisScript.rerun('返回庭院');
 			} else {
+				let operatorIndex = thisConf && thisConf['switch_ji_enabled'] ? 9 : 0
+
+				// 多次寻找无果后放弃挑战逢魔·极，寻找普通逢魔
+				if (thisConf && thisConf['switch_ji_enabled'] && thisScript.global.fm_boss_btn_click_cnt >= (parseInt(thisConf.times_for_search_boss as string) || 20)) {
+					operatorIndex = 0;
+				}
+
+				// 尝试了多次寻找逢魔·极首领，放弃挑战逢魔·极，挑战普通逢魔，重试次数是原有的两倍
+				const reTryNum = thisConf && thisConf['switch_ji_enabled'] && operatorIndex === 0 ? 2 : 1
+
 				if (
 					thisScript.oper({
 						name: '检测_是否有寻找 逢魔·普通/极 按钮',
-						operator: [thisOperator[thisConf && thisConf['switch_ji_enabled'] ? 9 : 0]], //	检测 是否有开启 逢魔·极
+						operator: [thisOperator[operatorIndex]], //	检测 是否有开启 逢魔·极
 					})
 				) {
 					if (!thisScript.global.fm_boss_btn_click_cnt) {
 						thisScript.global.fm_boss_btn_click_cnt = 0;
 					}
-					if (++thisScript.global.fm_boss_btn_click_cnt >= (parseInt(thisConf.times_for_search_boss as string) || 20)) {
+					if (thisScript.global.fm_boss_btn_click_cnt++ >= (parseInt(thisConf.times_for_search_boss as string) * reTryNum || 20 * reTryNum)) {
 						thisScript.global.fm_kiss_boss_flag = true;
 						thisScript.myToast(
 							`第${thisScript.global.fm_boss_btn_click_cnt}次点击查找逢魔·普通/极首领按钮未成功进入首领挑战，标记挑战成功e`
@@ -374,7 +399,12 @@ export class Func508 implements IFuncOrigin {
 				}
 			}
 		}
-
+		if (thisScript.oper({
+			name: '歌姬胧车',
+			operator: [thisOperator[11]],
+		})) {
+			return true
+		}
 		return false;
 	}
 }

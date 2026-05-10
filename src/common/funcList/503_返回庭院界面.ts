@@ -9,7 +9,7 @@ const right = 2;
 export class Func503 implements IFuncOrigin {
 	id = 503;
 	name = '返回庭院界面';
-	desc = '支持从探索地图退出至庭院界面';
+	desc = '从各个地方返回到庭院界面';
 	config = [{
 		desc: '结束后切换方案',
 		config: [{
@@ -22,17 +22,16 @@ export class Func503 implements IFuncOrigin {
 			desc: '下一个方案',
 			type: 'scheme',
 			default: '通用准备退出',
-		}, {
-			name: 'afterCountOper',
-			desc: '不开启切换方案	则',
-			type: 'list',
-			data: ['停止脚本', '关闭应用', '不进行任何操作'],
-			default: '停止脚本',
 		}]
 	}, {
 
 		desc: '选择需要执行操作的界面',
 		config: [{
+			name: 'oper_find_-1',
+			desc: '-1 左上角返回庭院图标，最低优先级',
+			type: 'switch',
+			default: true,
+		}, {
 			name: 'oper_0',
 			desc: '0 探索地图界面',
 			type: 'switch',
@@ -137,7 +136,7 @@ export class Func503 implements IFuncOrigin {
 			name: 'oper_26',
 			desc: '26 组队界面',
 			type: 'switch',
-			default: true,
+			default: false,
 		}, {
 			name: 'oper_27',
 			desc: '27 探索里面',
@@ -184,11 +183,6 @@ export class Func503 implements IFuncOrigin {
 			type: 'switch',
 			default: true,
 		}, {
-			name: 'oper_36',
-			desc: '36 商店界面',
-			type: 'switch',
-			default: true,
-		}, {
 			name: 'oper_37',
 			desc: '37 杂货铺界面',
 			type: 'switch',
@@ -205,15 +199,56 @@ export class Func503 implements IFuncOrigin {
 			default: true,
 		}, {
 			name: 'oper_40',
-			desc: '39 契灵界面',
+			desc: '40 契灵界面',
 			type: 'switch',
 			default: true,
-		}]
+		}, {
+			name: 'oper_41',
+			desc: '41 秘闻_刷新记录',
+			type: 'switch',
+			default: true,
+		}, {
+			name: 'oper_42',
+			desc: '42 秘闻_红叉退出',
+			type: 'switch',
+			default: true,
+		}, {
+			name: 'oper_43',
+			desc: '43 秘闻_蓝箭头退出',
+			type: 'switch',
+			default: true,
+		}, {
+			name: 'oper_44',
+			desc: '44 宴会_料理筹备界面',
+			type: 'switch',
+			default: true,
+		}, {
+			name: 'oper_45',
+			desc: '45 招募界面',
+			type: 'switch',
+			default: true,
+		}, {
+			name: 'oper_46',
+			desc: '46 师徒界面',
+			type: 'switch',
+			default: true,
+		}, {
+			name: 'oper_47',
+			desc: '47 御灵界面',
+			type: 'switch',
+			default: true,
+		}, {
+			name: 'oper_48',
+			desc: '48 设置界面',
+			type: 'switch',
+			default: true,
+		}
+		]
 	}];
 	operator: IFuncOperatorOrigin[] = [{	// 0 探索地图
 		desc: '探索地图界面',
 		oper: [
-			[center, 1280, 720, 32, 34, 76, 81, 1000],
+			[center, 1280, 720, 21, 24, 62, 57, 1000],
 		]
 	}, { 	// 1 阴阳寮神社首页
 		desc: [1280, 720,
@@ -389,7 +424,7 @@ export class Func503 implements IFuncOrigin {
 		desc: '突破界面',
 		oper: [
 			[center, 1280, 720, 1187, 112, 1228, 150, 1000],
-			[center, 1280, 720, 31, 37, 79, 76, 1000],
+			[center, 1280, 720, 21, 24, 62, 57, 1000],
 		]
 	}, {
 		// 18 客户端更新窗口关闭
@@ -455,20 +490,26 @@ export class Func503 implements IFuncOrigin {
 			[center, 1280, 720, 1180, 110, 1230, 153, 1000],
 		]
 	}, {
-		// 22 战斗场景等待
-		desc: '战斗界面',
-		// oper: [
-		// 	[center, 1280, 720, 16, 12, 60, 56, 1000],
-		// 	[center, 1280, 720, 678, 396, 806, 450, 3000],
-		// ]
+		// 22 战斗场景等待 废弃(desc取色乱取的)
+		desc: [1280, 720,
+			[
+				[left, 230, 112, 0x171519],
+				[right, 726, 224, 0x0b090a],
+				[center, 571, 478, 0x57474d],
+				[right, 1016, 187, 0x182873],
+				[center, 540, 181, 0xa854e7],
+				[center, 343, 242, 0xaa57ed],
+				[center, 385, 362, 0x23251c],
+			]
+		],
 		oper: [
-			[center, 1280, 720, -1, -1, -1, -1, 2000]
+			[center, 1280, 720, -1, -1, -1, -1, 0]
 		]
 	}, {
 		// 23 战斗场景_手动状态等待
 		desc: '战斗界面_手动状态',
 		oper: [
-			[center, 1280, 720, -1, -1, -1, -1, 2000]
+			[center, 1280, 720, -1, -1, -1, -1, 0]
 		]
 	}, { // 24 寮神社界面
 		desc: '寮神社界面',
@@ -496,9 +537,8 @@ export class Func503 implements IFuncOrigin {
 		desc: [
 			1280, 720,
 			[
-				[center, 811, 659, 0xc2baa2],
 				[right, 1173, 35, 0xd7af86],
-				[left, 40, 65, 0xf0f5fb],
+				[left, 45, 37, 0xf5e5a5],
 				[center, 621, 45, 0xfce5cd],
 				[right, 1094, 603, 0xfa812c],
 			]
@@ -573,12 +613,13 @@ export class Func503 implements IFuncOrigin {
 	}, { // 35 六道之门
 		desc: [1280, 720,
 			[
-				[left, 24, 22, 0x454570],
 				[left, 40, 25, 0xd4d6e9],
 				[left, 58, 39, 0x515e7a],
-				[left, 47, 41, 0x727b97],
 				[left, 36, 50, 0xe0e1f2],
 				[left, 23, 41, 0xeff0f9],
+				[left, 316, 18, 0xefcf8c],
+				[center, 343, 30, 0x31386b],
+				[left, 253, 39, 0x5a3716],
 			]
 		],
 		oper: [
@@ -657,26 +698,126 @@ export class Func503 implements IFuncOrigin {
 		oper: [
 			[center, 1280, 720, 28, 21, 56, 45, 1000],
 		]
+	}, { // 41 秘闻_刷新记录
+		desc: [1280, 720,
+			[
+				[center, 528, 326, 0xe4d5ab],
+				[center, 590, 335, 0xd9c998],
+				[center, 626, 332, 0xdecd9e],
+				[right, 747, 328, 0xe4d3a6],
+				[right, 861, 349, 0xe7d38a],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 599, 650, 742, 694, 1000],
+		]
+	}, { // 42 秘闻_红叉退出
+		desc: [1280, 720,
+			[
+				[center, 432, 65, 0x3c3a3f],
+				[right, 844, 60, 0x403f45],
+				[right, 1141, 66, 0x3c3a40],
+				[center, 527, 79, 0x503a28],
+				[right, 1177, 105, 0x66333b],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 1153, 98, 1197, 137, 1000],
+		]
+	}, { // 43 秘闻_竞速蓝箭头退出
+		desc: [1280, 720,
+			[
+				[left, 50, 35, 0xc2cbe1],
+				[left, 41, 48, 0xc2cbe0],
+				[left, 56, 61, 0x9fafd1],
+				[left, 62, 47, 0x3e4a92],
+				[left, 254, 46, 0x593716],
+				[left, 271, 46, 0x593716],
+				[left, 111, 42, 0xdfd9ca],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 38, 30, 70, 65, 1000],
+		]
+	}, { //	44 宴会_料理筹备界面
+		desc: [1280, 720,
+			[
+				[left, 157, 96, 0x43312f],
+				[left, 157, 144, 0x1e1311],
+				[center, 418, 80, 0x32231f],
+				[center, 434, 122, 0x241815],
+				[left, 188, 112, 0xeab35a],
+				[center, 365, 111, 0xeab85d],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 30, 41, 63, 71, 1000],
+		]
+	}, { // 45 寮招募界面
+		desc: [
+			1280, 720,
+			[
+				[center, 564, 33, 0xf7f2df],
+				[right, 595, 35, 0x23180f],
+				[right, 720, 39, 0x583716],
+				[center, 401, 619, 0xcaa97f],
+				[center, 405, 639, 0xbc9972],
+				[center, 417, 609, 0x4c403b],
+				[center, 424, 649, 0xe8e6e4]
+			]
+		],
+		oper: [
+			[center, 1280, 720, 29, 9, 65, 49, 1000],
+		]
+	}, {
+		// 46 师徒界面
+		desc: [1280, 720,
+			[
+				[left, 177, 540, 0x3f3333],
+				[left, 159, 581, 0x161313],
+				[center, 383, 600, 0x472918],
+				[center, 419, 135, 0x896955],
+				[center, 533, 128, 0x312724],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 21, 16, 67, 56, 1000],
+		]
+	}, {
+		// 47 御灵界面
+		desc: [1280, 720,
+			[
+				[right, 911, 51, 0x2c1e1e],
+				[right, 1122, 46, 0xd7b189],
+				[right, 895, 43, 0x3a3a3a],
+				[right, 885, 42, 0xcdcdd1],
+				[right, 877, 27, 0x2d1e1f],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 21, 16, 67, 56, 1000],
+		]
+	}, { // 48 庭院点击头像的设置界面
+		desc: [1280, 720,
+			[
+				[left, 96, 83, 0xe8c797],
+				[center, 638, 32, 0x5f5647],
+				[center, 813, 32, 0x5f5647],
+				[right, 993, 32, 0x5f5647],
+				[right, 1108, 98, 0xe7d7ce],
+				[left, 140, 224, 0xdba060],
+				[left, 130, 632, 0xdfddd0],
+				[left, 146, 655, 0xe4d8cb],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 1090, 77, 1124, 119, 1000],
+		]
 	}];
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
 		const thisConf = thisScript.scheme.config['503'];
 		let enabledThisOperator = [];
-		if (typeof thisConf.oper_0 === 'undefined') {
-			// 升级兼容配置为空的情况，这一块代码暂时保留，以后有新增要处理的界面只新增配置，不修改这一块代码
-			enabledThisOperator = [
-				thisOperator[0], thisOperator[1], thisOperator[2],
-				thisOperator[3], thisOperator[5], thisOperator[6],
-				thisOperator[7], thisOperator[10], thisOperator[11],
-				thisOperator[14], thisOperator[15], thisOperator[17],
-				thisOperator[18], thisOperator[19], thisOperator[20],
-				thisOperator[21], thisOperator[22], thisOperator[24],
-				thisOperator[25], thisOperator[27], thisOperator[28],
-				thisOperator[29], thisOperator[30], thisOperator[31],
-				thisOperator[33],
-			]
-		} else {
-			enabledThisOperator = Object.keys(thisConf).filter(keyName => /oper_\d+/.test(keyName) && thisConf[keyName]).map(keyName => thisOperator[parseInt(keyName.split('_')[1])]);
-		}
+		enabledThisOperator = Object.keys(thisConf).filter(keyName => /oper_\d+/.test(keyName) && thisConf[keyName]).map(keyName => thisOperator[parseInt(keyName.split('_')[1])]);
 		if (thisScript.oper({
 			id: 503,
 			name: '返回庭院',
@@ -685,6 +826,18 @@ export class Func503 implements IFuncOrigin {
 			return true;
 		}
 
+		// 作为保底，最低优先级
+		const { lastFuncDateTime, currentDate, runDate } = thisScript;
+		if (thisConf['oper_find_-1']) {
+			if (new Date().getTime() - Math.max(lastFuncDateTime?.getTime() || 0, currentDate?.getTime() || 0, runDate?.getTime() || 0) > 3000) {
+				const backHomePoint = thisScript.findMultiColor('左上_返回庭院');
+				if (backHomePoint) {
+					thisScript.regionClick([[backHomePoint.x, backHomePoint.y, backHomePoint.x + 15, backHomePoint.y + 15, 1200]]);
+					thisScript.myToast('点击左上角返回庭院图标');
+					return true;
+				}
+			}
+		}
 		// 查找返回图标
 		// const backPoint = thisScript.findMultiColor('返回图标');
 		// if (backPoint) {
@@ -704,21 +857,15 @@ export class Func503 implements IFuncOrigin {
 				desc: thisOperator[16].desc
 			}]
 		})) {
-
 			// 町中与庭院几乎一致。。。只能用牌子来做比较
 			if (thisScript.oper({
 				id: 503,
 				name: '旧版町中界面',
-				operator: [{
-					desc: thisOperator[4].desc,
-					oper: thisOperator[4].oper
-				}]
+				operator: [thisOperator[4]]
 			})) {
 				return true;
 			}
-
 			if (thisScript.oper({
-				id: 503,
 				name: '庭院界面',
 				operator: [{
 					desc: thisOperator[12].desc
@@ -726,11 +873,18 @@ export class Func503 implements IFuncOrigin {
 			})) {
 				// 返回方案起始点,并重置起始点?必要性存疑
 				let next_scheme = thisScript.runtimeParams && thisScript.runtimeParams.next_scheme_name;
+				if (!next_scheme) {
+					next_scheme = thisScript.superGlobal.next_scheme_name;
+					thisScript.superGlobal.next_scheme_name = null;
+				}
+				if (next_scheme) {
+					log('id_503_next_scheme:' + next_scheme);
+				}
 				if (thisConf.scheme_switch_enabled) {
 					next_scheme = thisConf.next_scheme as string;
 				}
 				if (!next_scheme) {
-					if ('停止脚本' === thisConf.afterCountOper || !thisConf.afterCountOper) {
+					if ('停止脚本' === thisConf.afterCountOper) {
 						thisScript.doPush(thisScript, { text: `[${thisScript.schemeHistory.map(item => item.schemeName).join('、')}]已停止，请查看。`, before() { thisScript.myToast('脚本即将停止，正在上传数据'); } });
 						thisScript.stop();
 					} else if ('关闭应用' === thisConf.afterCountOper) {
@@ -748,11 +902,6 @@ export class Func503 implements IFuncOrigin {
 				}
 			}
 		}
-
-		// TODO 不认识的界面，尝试发送back()/esc键事件
-		// mumu模拟器不认识的界面可以通过按esc或back返回上一级，可以考虑从这上面去优化
-		// back();
-		// sleep(1000);
 		return false;
 	}
 }

@@ -36,10 +36,8 @@ export class Func999 implements IFuncOrigin {
 			],
 		},
 		{
-			// 3 点击结界
-			desc: [
-				1280,
-				720,
+			// 3 阴阳寮主界面_点击结界
+			desc: [1280, 720,
 				[
 					[right, 1096, 630, 0xb1251f],
 					[right, 1105, 662, 0xdbe3f1],
@@ -89,7 +87,42 @@ export class Func999 implements IFuncOrigin {
 			oper: [
 				[center, 1280, 720, 586, 442, 692, 470, 600], // 点击确认
 			],
-		},
+		}, {
+			// 7 阴阳寮主界面_植树活动 关闭
+			desc: [1280, 720,
+				[
+					[right, 1096, 630, 0x350b09],
+					[right, 1105, 662, 0x424448],
+					[left, 45, 39, 0x494431],
+					[center, 886, 644, 0x433d33],
+					[center, 460, 118, 0xefdacb],
+					[center, 781, 109, 0x8e684a],
+					[center, 794, 108, 0xe5cc92],
+					[center, 794, 472, 0xf3e3d8],
+					[center, 512, 581, 0xefd9c6],
+				]
+			],
+			oper: [
+				[center, 1280, 720, 782, 89, 812, 126, 1000],
+			]
+		}, { // 8 阴阳寮主界面_植树活动_合影弹窗 关闭
+			desc: [1280, 720,
+				[
+					[right, 1096, 630, 0x350b09],
+					[right, 1105, 662, 0x424448],
+					[left, 45, 39, 0x494431],
+					[center, 886, 644, 0x433d33],
+					[right, 951, 210, 0x92674a],
+					[right, 983, 212, 0x825841],
+					[right, 948, 469, 0xe1d5c8],
+					[center, 424, 536, 0xf5e3d9],
+					[right, 869, 526, 0xffd97c],
+				]
+			],
+			oper: [
+				[center, 1280, 720, 949, 193, 986, 230, 1000],
+			]
+		}
 	];
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
 		if (
@@ -100,69 +133,74 @@ export class Func999 implements IFuncOrigin {
 					thisOperator[0],
 					thisOperator[1],
 					thisOperator[2],
+					thisOperator[3],
 					thisOperator[4],
 					thisOperator[5],
 					thisOperator[6],
+					thisOperator[7],
+					thisOperator[8],
 				],
 			})
 		) {
 			return true;
 		}
-		// 点击10都点不中就直接跳过不点了
-		if (thisScript.global.checked_yard_count_999 > 10) {
-			thisScript.global.checked_yard_count_999 = 0;
-			return thisScript.oper({
-				id: 999,
-				name: '点击阴阳寮',
-				operator: [
-					{
-						desc: thisOperator[3].desc,
-						oper: thisOperator[3].oper,
-					},
-				],
-			});
-		} else {
-			sleep(1500);
-			if (!thisScript.global.checked_yard_count_999) {
-				thisScript.global.checked_yard_count_999 = 1;
-			} else {
-				thisScript.global.checked_yard_count_999 += 1;
-			}
-		}
+		// 功能弃用，不需要获取奖励了，直接进入阴阳寮，暂时注释掉了
+		// // 点击10都点不中就直接跳过不点了
+		// if (thisScript.global.checked_yard_count_999 > 10) {
+		// 	thisScript.global.checked_yard_count_999 = 0;
+		// 	return thisScript.oper({
+		// 		id: 999,
+		// 		name: '点击阴阳寮',
+		// 		operator: [
+		// 			{
+		// 				desc: thisOperator[3].desc,
+		// 				oper: thisOperator[3].oper,
+		// 			},
+		// 		],
+		// 	});
+		// } else {
+		// 	sleep(1500);
+		// 	if (!thisScript.global.checked_yard_count_999) {
+		// 		thisScript.global.checked_yard_count_999 = 1;
+		// 	} else {
+		// 		thisScript.global.checked_yard_count_999 += 1;
+		// 	}
+		// }
 
-		if (
-			thisScript.oper({
-				id: 999,
-				name: '检测_阴阳寮主页',
-				operator: [
-					{
-						desc: thisOperator[3].desc,
-					},
-				],
-			})
-		) {
-			const point = thisScript.findMultiColor('阴阳寮_奖励体力');
+		// 功能弃用，已同步到阴阳师一键获取，暂时注释掉了
+		// if (
+		// 	thisScript.oper({
+		// 		id: 999,
+		// 		name: '检测_阴阳寮主页',
+		// 		operator: [
+		// 			{
+		// 				desc: thisOperator[3].desc,
+		// 			},
+		// 		],
+		// 	})
+		// ) {
+		// 	const point = thisScript.findMultiColor('阴阳寮_奖励体力');
 
-			if (point && point.x >= 235) { // x>=235 防止点到寮活动
-				console.log('查找阴阳寮_奖励体力成功');
-				const oper = [
-					[point.x - 5, point.y - 5, point.x + 5, point.y + 5, 1200],
-				];
-				thisScript.regionClick(oper);
-				return true;
-			}
+		// 	if (point) {
+		// 		console.log('查找阴阳寮_奖励体力成功');
+		// 		const oper = [
+		// 			[point.x - 5, point.y - 5, point.x + 5, point.y + 5, 1200],
+		// 		];
+		// 		thisScript.regionClick(oper);
+		// 		return true;
+		// 	}
 
-			const point1 = thisScript.findMultiColor('阴阳寮_奖励金币');
+		// 	const point1 = thisScript.findMultiColor('阴阳寮_奖励金币');
 
-			if (point1) {
-				console.log('查找阴阳寮_奖励金币成功');
-				const oper = [
-					[point1.x - 5, point1.y - 5, point1.x + 5, point1.y + 5, 1200],
-				];
-				thisScript.regionClick(oper);
-				return true;
-			}
-		}
+		// 	if (point1) {
+		// 		console.log('查找阴阳寮_奖励金币成功');
+		// 		const oper = [
+		// 			[point1.x - 5, point1.y - 5, point1.x + 5, point1.y + 5, 1200],
+		// 		];
+		// 		thisScript.regionClick(oper);
+		// 		return true;
+		// 	}
+		// }
 
 		return false;
 	}

@@ -4,9 +4,7 @@ import { Script } from '@/system/script';
 const left = 0;
 const center = 1;
 const right = 2;
-let swiper = 0
 let allPoint;
-
 export class Func018 implements IFuncOrigin {
 	id = 18;
 	name = '每日悬赏';
@@ -27,6 +25,11 @@ export class Func018 implements IFuncOrigin {
 			desc: '取消勾选狗粮协作',
 			type: 'switch',
 			default: true,
+		}, {
+			name: 'ranLiao',
+			desc: '取消勾选燃料协作',
+			type: 'switch',
+			default: true,
 		}]
 	}, {
 		desc: '结束后切换方案',
@@ -37,7 +40,7 @@ export class Func018 implements IFuncOrigin {
 			default: false,
 		}, {
 			name: 'next_scheme',
-			desc: '下一个方案',
+			desc: '先切换至返回庭院，再由返回庭院切换至配置的目标方案',
 			type: 'scheme',
 			default: '地鬼日常',
 		}]
@@ -91,13 +94,13 @@ export class Func018 implements IFuncOrigin {
 	}, { // 3 庭院未打开菜单
 		desc: '页面是否为庭院_菜单未展开_只支持默认庭院皮肤与默认装饰',
 		oper: [
-			[left, 1280, 720, 0, 0, 32, 63, 1000]
+			[right, 1280, 720, 1168, 592, 1230, 690, 1200]
 		]
 	}, { // 4 庭院已打开菜单
 		desc: '页面是否为庭院_菜单已展开_只支持默认庭院皮肤与默认装饰'
 	}, { // 5 庭院已打开菜单，另外一种图标
 		desc: '页面是否为庭院_菜单已展开_另一种图标_御祝图标_只支持默认庭院皮肤与默认装饰'
-	}, { // 6
+	}, { // 6 发现地点弹窗
 		desc: [
 			1280, 720,
 			[
@@ -107,58 +110,57 @@ export class Func018 implements IFuncOrigin {
 				[center, 589, 196, 0x8b3232],
 				[center, 274, 556, 0x917265],
 				[center, 198, 166, 0x957969],
-				[left, 68, 653, 0x582757],
-				[left, 191, 710, 0x331e14],
+				[left, 192, 667, 0x5e5213],
+				[left, 297, 674, 0x55524f],
 			]
 		],
 		oper: [
 			[left, 1280, 720, 0, 0, 38, 21, 4000],
 		]
-	}, { // 7
+	}, { // 7 发现地点弹窗关闭
 		desc: [1280, 720,
 			[
 				[center, 384, 164, 0x957464],
 				[right, 1002, 165, 0x927161],
 				[center, 590, 195, 0x8a3131],
 				[left, 182, 191, 0x4656da],
-				[left, 194, 205, 0x3a4ab7]
+				[left, 194, 205, 0x3a4ab7],
 			]
 		],
 		oper: [
 			[left, 1280, 720, 176, 193, 193, 208, 1000],
 		]
-	}, { // 8
-		desc: '探索章节_挑战',
-		oper: [
-			[left, 1280, 720, 1025, 129, 1071, 174, 1000],
-		]
-	}, { // 9
-		desc: '探索章节_挑战2',
-		oper: [
-			[center, 1280, 720, 1032, 120, 1082, 166, 1000],
-		]
-	}, { // 10
-		desc: '探索地图界面'
-	}, { // 11
+	}, { // 8 探索章节_挑战退出
 		desc: [1280, 720,
 			[
-				[left, 54, 43, 0xeaf4fc],
-				[left, 51, 36, 0x9eafee],
-				[left, 52, 78, 0xcadbff],
-				[left, 119, 652, 0xa86420],
-				[left, 209, 643, 0xf6f0b7],
-				[center, 326, 640, 0xcfc9b8],
-				[center, 430, 652, 0xb96567],
-				[center, 500, 640, 0x564635],
-				[left, 135, 132, 0x76551c],
-				[left, 117, 133, 0x47362e]
+				[left, 45, 21, 0xefd48f],
+				[left, 33, 30, 0xf7ebad],
+				[left, 45, 40, 0xefd791],
+				[right, 1127, 582, 0xe3d7c2],
+				[right, 1129, 665, 0xe4d8c3],
+				[right, 1136, 636, 0xe4dbc6],
 			]
 		],
 		oper: [
-			[center, 1280, 720, 29, 461, 115, 467, 1],
-			[center, 1280, 720, 25, 174, 105, 178, 1]
+			[center, 1280, 720, 24, 15, 57, 51, 1000],
 		]
-	}, { // 12
+	}, { // 9 庭院协作_发现地点弹窗
+		desc: [1280, 720,
+			[
+				[center, 384, 164, 0x957464],
+				[right, 1002, 165, 0x927161],
+				[center, 590, 195, 0x8a3131],
+				[left, 270, 555, 0x8f7164],
+			]
+		],
+	}, { // 10
+		desc: '探索地图界面',
+		retest: 500,
+	}, { // 11 探索返回
+		oper: [
+			[center, 1280, 720, 28, 25, 55, 57, 1000],
+		]
+	}, { // 12 废弃
 		desc: [
 			1280, 720,
 			[
@@ -197,8 +199,7 @@ export class Func018 implements IFuncOrigin {
 		oper: [
 			[center, 1280, 720, 557, 605, 679, 690, 1000],
 		]
-	}, {
-		// 秘闻对话点击
+	}, { // 15 秘闻对话点击
 		desc: [1280, 720,
 			[
 				[center, 500, 715, 0x000000],
@@ -212,16 +213,14 @@ export class Func018 implements IFuncOrigin {
 			]
 		],
 		oper: [
-			[left, 1280, 720, 529, 688, 744, 706, 2000],
+			[left, 1280, 720, 529, 688, 744, 706, 200],
 		]
-	}, {
-		// 秘闻挑战开启
+	}, { // 16 秘闻挑战开启
 		desc: '秘闻挑战开启',
 		oper: [
 			[left, 1280, 720, 452, 605, 870, 683, 2000],
 		]
-	}, {
-		// 已适配66 处于秘闻挑战时点击返回按钮
+	}, { // 17 处于秘闻挑战时点击返回按钮
 		desc: [
 			1280, 720,
 			[
@@ -239,8 +238,7 @@ export class Func018 implements IFuncOrigin {
 		oper: [
 			[center, 1280, 720, 24, 19, 86, 76, 1000],
 		]
-	}, {
-		// 已适配66 处于秘闻副本列表时点击返回按钮
+	}, { // 18 处于秘闻副本列表时点击返回按钮
 		desc: [
 			1280, 720,
 			[
@@ -258,8 +256,7 @@ export class Func018 implements IFuncOrigin {
 		oper: [
 			[center, 1280, 720, 24, 19, 86, 76, 1000],
 		]
-	}, {
-		// 关闭宝箱奖励弹窗
+	}, { // 19 关闭宝箱奖励弹窗
 		desc: [1280, 720,
 			[
 				[center, 323, 235, 0x604023],
@@ -278,34 +275,20 @@ export class Func018 implements IFuncOrigin {
 		oper: [
 			[center, 1280, 720, 443, 494, 788, 632, 1000]
 		]
-	}, {
-		// 关闭宝箱奖励弹窗 旧
+	}, { // 20 秘闻红叉
 		desc: [1280, 720,
 			[
-				[center, 496, 199, 0xf4e4af],
-				[center, 576, 198, 0xfbf3cf],
-				[center, 525, 230, 0xe1d090],
-				[center, 489, 266, 0x88602d],
-				[center, 783, 262, 0x977542],
-				[center, 781, 218, 0xeedeac],
-				[center, 678, 238, 0xecdba8],
-				[center, 337, 255, 0x645c5c],
-				[center, 345, 279, 0x79716d],
-				[center, 342, 330, 0xb8aba8],
-				[center, 332, 342, 0x706057],
-				[center, 957, 233, 0x624024],
-				[center, 946, 252, 0x505050],
-				[center, 936, 276, 0x776f6d],
-				[center, 950, 347, 0x716058],
-				[center, 928, 327, 0x69594b],
-				[center, 921, 377, 0x89683e]
+				[right, 1164, 118, 0x73303b],
+				[right, 1170, 112, 0xe7dad3],
+				[right, 1189, 111, 0xe9d6cf],
+				[right, 1177, 120, 0xe8d5d0],
+				[right, 1187, 129, 0xe9e0d3],
 			]
 		],
 		oper: [
-			[center, 1280, 720, 443, 494, 788, 632, 1000]
+			[center, 1280, 720, 1160, 101, 1195, 137, 1000],
 		]
-	}, {
-		// 关闭秘闻刷新记录提示
+	}, { // 21 关闭秘闻刷新记录提示
 		desc: [1280, 720,
 			[
 				[center, 526, 311, 0xeeeecc],
@@ -327,7 +310,7 @@ export class Func018 implements IFuncOrigin {
 		oper: [
 			[center, 1280, 720, 326, 509, 1169, 692, 1000]
 		]
-	}, {
+	}, { // 22 ? 可能是秘闻对话
 		desc: [1280, 720,
 			[
 				[center, 440, 613, 0x4387cb],
@@ -342,7 +325,7 @@ export class Func018 implements IFuncOrigin {
 		oper: [
 			[left, 1280, 720, 685, 492, 1038, 686, 3000],
 		]
-	}, {
+	}, { // 23 ? 可能是秘闻对话
 		desc: [1280, 720,
 			[
 				[center, 355, 353, 0xcdc7b6],
@@ -355,9 +338,20 @@ export class Func018 implements IFuncOrigin {
 		oper: [
 			[left, 1280, 720, 685, 492, 1038, 686, 2000],
 		]
-	}]
+	}, { // 24 神秘妖怪
+		desc: [1280, 720,
+			[
+				[left, 186, 234, 0x6c6663],
+				[left, 189, 348, 0x615b58],
+				[left, 187, 356, 0x605b58],
+				[center, 327, 252, 0x292826],
+				[center, 334, 327, 0x282624],
+			]
+		],
+	},]
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
 		const thisconf = thisScript.scheme.config['18'];
+		let enabledThisOperator = [{ desc: thisOperator[6].desc }];
 		// 打开和追踪悬赏
 		if (!thisScript.global.xsOpened && thisScript.oper({
 			name: '悬赏_庭院界面',
@@ -370,7 +364,7 @@ export class Func018 implements IFuncOrigin {
 				}]
 			})) {
 				let point = null;
-				allPoint = []
+				allPoint = [];
 				if (thisconf.jinBi) {
 					point = thisScript.findMultiColor('悬赏_金币协作') || null;
 				}
@@ -389,6 +383,16 @@ export class Func018 implements IFuncOrigin {
 				if (point !== null) {
 					allPoint.push(point);
 				}
+				if (thisconf.ranLiao) {
+					point = thisScript.findMultiColor('悬赏_胧车燃料') || null;
+				}
+				if (point !== null) {
+					allPoint.push(point);
+				}
+				point = thisScript.findMultiColor('悬赏_协作完成')
+				if (point !== null) {
+					allPoint.push(point);
+				}
 				if (thisScript.findMultiColor('悬赏_勾玉协作')) {
 					thisScript.doPush(thisScript, { text: '发现有勾玉协作，及时邀请。' });
 				}
@@ -401,6 +405,82 @@ export class Func018 implements IFuncOrigin {
 				return true
 			} else {
 				return false
+			}
+		}
+		// 开始打协作
+		if (thisScript.global.xsXieZuo) {
+			let fightPoint = null;
+			let region = null;
+			enabledThisOperator = [{ desc: thisOperator[9].desc }];
+			if (thisScript.oper({
+				name: '悬赏_追踪悬赏',
+				operator: [{ desc: thisOperator[1].desc }]
+			})) {
+				if (!thisconf.jinBi) {
+					fightPoint = thisScript.findMultiColor('悬赏_金币协作') || null;
+					if (fightPoint) {
+						region = [fightPoint.x - 10, fightPoint.y - 10, fightPoint.x + 10, fightPoint.y + 10]
+						const finishPoint = thisScript.findMultiColor('悬赏_协作完成', region);
+						if (!finishPoint) {
+							thisScript.regionClick([[fightPoint.x, fightPoint.y, fightPoint.x + 10, fightPoint.y + 10, 1000]]);
+							return true;
+						} else {
+							fightPoint = null;
+						}
+					}
+				}
+				if (!thisconf.gouLiang) {
+					fightPoint = thisScript.findMultiColor('悬赏_狗粮协作') || null;
+					if (fightPoint) {
+						region = [fightPoint.x - 10, fightPoint.y - 10, fightPoint.x + 10, fightPoint.y + 10]
+						const finishPoint = thisScript.findMultiColor('悬赏_协作完成', region);
+						if (!finishPoint) {
+							thisScript.regionClick([[fightPoint.x, fightPoint.y, fightPoint.x + 10, fightPoint.y + 10, 1000]]);
+							return true;
+						} else {
+							fightPoint = null;
+						}
+					}
+				}
+				if (!thisconf.tiLi) {
+					fightPoint = thisScript.findMultiColor('悬赏_体力协作') || null;
+					if (fightPoint) {
+						region = [fightPoint.x - 10, fightPoint.y - 10, fightPoint.x + 10, fightPoint.y + 10]
+						const finishPoint = thisScript.findMultiColor('悬赏_协作完成', region);
+						if (!finishPoint) {
+							thisScript.regionClick([[fightPoint.x, fightPoint.y, fightPoint.x + 10, fightPoint.y + 10, 1000]]);
+							return true;
+						} else {
+							fightPoint = null;
+						}
+					}
+				}
+				fightPoint = thisScript.findMultiColor('悬赏_勾玉协作')
+				if (fightPoint) {
+					region = [fightPoint.x - 10, fightPoint.y - 10, fightPoint.x + 10, fightPoint.y + 10]
+					const finishPoint = thisScript.findMultiColor('悬赏_协作完成', region);
+					if (!finishPoint) {
+						thisScript.regionClick([[fightPoint.x, fightPoint.y, fightPoint.x + 10, fightPoint.y + 10, 1000]]);
+						return true;
+					}
+				}
+				thisScript.regionClick(thisOperator[1].oper);
+				if (thisconf.scheme_switch_enabled) {
+					thisScript.superGlobal.next_scheme_name = thisScript?.scheme?.config['16']?.next_scheme as string;
+					thisScript.rerun('返回庭院');
+					sleep(1000);
+					return true;
+				} else {
+					thisScript.doPush(thisScript, { text: `[${thisScript.schemeHistory.map(item => item.schemeName).join('、')}]已停止，请查看。`, before() { thisScript.myToast('脚本即将停止，正在上传数据'); } });
+					thisScript.stop();
+					sleep(1000);
+					return true;
+				}
+			}
+			const point = thisScript.findMultiColor('悬赏_庭院检测悬赏图标') || null;
+			if (point !== null) {
+				thisScript.regionClick([[point.x, point.y, point.x + 20, point.y + 20, 1000]]);
+				return true
 			}
 		}
 		// 筛选悬赏
@@ -416,11 +496,23 @@ export class Func018 implements IFuncOrigin {
 				allPoint.pop();
 			} else {
 				// 筛选完毕_关闭悬赏
+
 				return thisScript.oper({
 					name: '悬赏_已追踪悬赏',
 					operator: [thisOperator[1]]
 				})
 			}
+		}
+		// 神秘妖怪
+		if (thisScript.oper({
+			name: '悬赏_神秘妖怪',
+			operator: [thisOperator[24]]
+		})) {
+			thisScript.myToast('遇到神秘妖怪,请手动攻打');
+			thisScript.doPush(thisScript, { text: '遇到神秘妖怪,请手动攻打' });
+			thisScript.stop();
+			sleep(1000);
+			return true;
 		}
 		// 悬赏已完成
 		if (thisScript.oper({
@@ -431,18 +523,21 @@ export class Func018 implements IFuncOrigin {
 		})) {
 			thisScript.regionClick([[1164, 116, 1189, 143, 1000]]);
 			if (thisconf && thisconf.scheme_switch_enabled) {
-				thisScript.rerun(thisconf.next_scheme);
+				thisScript.superGlobal.next_scheme_name = thisScript?.scheme?.config['16']?.next_scheme as string;
+				thisScript.rerun('返回庭院');
+				sleep(1000);
+				return true;
 			} else {
 				thisScript.doPush(thisScript, { text: `[${thisScript.schemeHistory.map(item => item.schemeName).join('、')}]已停止，请查看。`, before() { thisScript.myToast('脚本即将停止，正在上传数据'); } });
 				thisScript.stop();
+				sleep(1000);
+				return true;
 			}
 		}
 		// 确认挑战副本
 		if (thisScript.oper({
 			name: '悬赏_发现地点弹窗',
-			operator: [{
-				desc: thisOperator[6].desc
-			}]
+			operator: enabledThisOperator
 		})) {
 			let challengeArr;
 			const unknownStory = thisScript.findMultiColor('悬赏_挑战字样') || null;
@@ -452,7 +547,7 @@ export class Func018 implements IFuncOrigin {
 					[unknownStory.x + 440, unknownStory.y, unknownStory.x + thisOperator[6].oper[0][2] + 440, unknownStory.y + thisOperator[6].oper[0][3], 4000]
 				];
 				thisScript.regionClick(oper);
-				thisScript.regionClick([[887, 514, 1004, 560, 1000]]);
+				thisScript.regionClick([[1082, 586, 1127, 625, 1000]]);
 				return true
 				// 如果没有挑战副本就寻找秘闻副本
 			} else if (!unknownStory) {
@@ -465,11 +560,12 @@ export class Func018 implements IFuncOrigin {
 						[challenge.x + 440, challenge.y, challenge.x + thisOperator[6].oper[0][2] + 440, challenge.y + thisOperator[6].oper[0][3], 2000]
 					];
 					thisScript.regionClick(oper);
-					thisScript.regionClick([[1055, 563, 1131, 642, 1000]]);
+					thisScript.regionClick([[1082, 586, 1127, 625, 1000]]);
 					return true
 				} else {
 					// 如果秘闻和挑战都没有就取消任务追踪
 					if (thisScript.oper({
+						id: 18,
 						name: '悬赏_取消任务追踪',
 						operator: [thisOperator[7]]
 					}) != null) {
@@ -483,18 +579,9 @@ export class Func018 implements IFuncOrigin {
 			}
 		}
 		// 关闭弹窗
-		const point = thisScript.findMultiColor('悬赏_挑战弹窗界面') || null
-		if (point) {
-			thisScript.regionClick([[1045, 131, 1064, 146, 1000]]);
-			return true;
-		}
-		const pointA = thisScript.findMultiColor('悬赏_识别秘闻界面') || null
-		if (pointA) {
-			thisScript.regionClick([[1164, 98, 1196, 132, 1000]]);
-		}
 		if (thisScript.oper({
 			name: '悬赏_关闭弹窗',
-			operator: [thisOperator[8], thisOperator[9],]
+			operator: [thisOperator[8]]
 		})) {
 			return true
 		}
@@ -506,67 +593,54 @@ export class Func018 implements IFuncOrigin {
 			const point = thisScript.findMultiColor('悬赏_宝箱') || null;
 			if (point != null) {
 				const oper = [
-					[point.x, point.y, point.x + 1, point.y + 1, 1000]
+					[point.x, point.y, point.x + 5, point.y + 5, 1000]
 				];
 				thisScript.regionClick(oper);
 				return true;
 			}
 		}
 		// 确认追踪悬赏
-		if (thisScript.oper({
+		let curCnt = 0;
+		const maxCount = 5;
+		while (thisScript.oper({
 			name: '悬赏_探索界面',
-			operator: [{
-				desc: thisOperator[10].desc
-			}]
+			operator: [thisOperator[10]]
 		})) {
-			const suspension = thisScript.oper({
-				name: '悬赏_探索界面_判断是否有悬赏',
-				operator: [thisOperator[12]]
-			});
-			const point = thisScript.findMultiColor('悬赏_已追踪任务') || null;
-			if (suspension) {
-				// 如果有悬浮列表
-				if (point != null) {
-					const oper = [
-						[point.x, point.y, point.x + 1, point.y + 1, 1000]
-					];
-					thisScript.regionClick(oper);
+			curCnt++;
+			thisScript.keepScreen(false);
+			if (curCnt >= maxCount) {
+				const pointXZ = thisScript.findMultiColor('悬赏_协作任务')
+				if (pointXZ) {
+					thisScript.regionClick(thisOperator[11].oper);
+					thisScript.global.xsXieZuo = true;
 					return true;
-				} else {
-					// 如果没有追踪任务就滑动，可能是真蛇之类的把任务挤下去了
-					if (swiper === 3) {
-						swiper = 0;
-						if (thisconf && thisconf.scheme_switch_enabled) {
-							thisScript.rerun(thisconf.next_scheme);
-							sleep(3000);
-							return;
-						} else {
-							thisScript.doPush(thisScript, { text: `[${thisScript.schemeHistory.map(item => item.schemeName).join('、')}]已停止，请查看。`, before() { thisScript.myToast('脚本即将停止，正在上传数据'); } });
-							thisScript.stop();
-							sleep(3000);
-							return;
-						}
-					}
-					thisScript.regionSwipe(thisOperator[11].oper[0], thisOperator[11].oper[1], [100, 300], 2000);
-					swiper++
-					return true
 				}
-			} else {
-				// 如果没有悬浮列表说明任务做完了
-				if (thisconf && thisconf.scheme_switch_enabled) {
+				if (thisconf.scheme_switch_enabled) {
 					thisScript.rerun(thisconf.next_scheme);
+					sleep(1000);
+					return;
 				} else {
 					thisScript.doPush(thisScript, { text: `[${thisScript.schemeHistory.map(item => item.schemeName).join('、')}]已停止，请查看。`, before() { thisScript.myToast('脚本即将停止，正在上传数据'); } });
 					thisScript.stop();
+					sleep(1000);
+					return;
 				}
 			}
+			const point = thisScript.findMultiColor('悬赏_已追踪任务') || null;
+			if (point != null) {
+				const oper = [
+					[point.x + 30, point.y, point.x + 35, point.y + 5, 1000]
+				];
+				thisScript.regionClick(oper);
+				return true;
+			}
+			sleep(500);
 		}
 		// 杂项
 		if (thisScript.oper({
 			name: '悬赏_杂项',
 			operator: thisOperator.slice(13)
 		})) {
-			swiper = 0;
 			return true
 		}
 	}

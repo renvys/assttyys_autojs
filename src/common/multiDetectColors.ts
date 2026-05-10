@@ -332,8 +332,8 @@ const multiDetectColors: IMultiDetectColorsOrigin = {
 			[
 				[center, 460, 258, 0xcbb59e],
 				[center, 799, 268, 0xcbb59e],
-				[center, 467, 429, 0xdf6851],
-				[center, 700, 431, 0xf4b25f],
+				[center, 457, 433, 0xdf6851],
+				[right, 693, 430, 0xf3b25e],
 				[center, 641, 429, 0xcbb59e],
 				[center, 560, 356, 0x725f4d]
 			]
@@ -528,54 +528,11 @@ const multiDetectColors: IMultiDetectColorsOrigin = {
 	'探索地图界面': {
 		desc: [1280, 720,
 			[
-				[right, 1168, 146, 0xd5cec1],
-				[right, 1124, 32, 0xd7b18b],
-				[right, 1226, 30, 0xd3af84],
-				[left, 18, 705, 0x754830],
-				[left, 210, 711, 0x72452f],
-				[left, 45, 36, 0xf5e5a6],
-			]
-		]
-	},
-	'探索地图界面_含时空秘境': {
-		desc: [1280, 720,
-			[
-				[left, 45, 36, 0xf5e5a6],
-				[right, 1168, 146, 0xd5cec1],
-				[right, 1124, 32, 0xd7b18b],
-				[right, 1226, 30, 0xd3af84],
-				[left, 18, 705, 0x794c31],
-				[left, 206, 710, 0x72452f],
-				[left, 251, 674, 0x1d140f],
-				[left, 287, 654, 0xffffff],
-			]
-		],
-	},
-	'探索章节_挑战': {
-		desc: [
-			1280, 720,
-			[
-				[center, 318, 417, 0xc7af95],
-				[center, 358, 133, 0x493625],
-				[center, 1046, 135, 0x64323b],
-				[center, 986, 539, 0xf3b25e],
-				[center, 1095, 545, 0xe5d2ab],
-				[center, 511, 562, 0xc7af94],
-				[center, 1109, 385, 0x633d21],
-			]
-		]
-	},
-	'探索章节_挑战2': {
-		desc: [
-			1280, 720,
-			[
-				[center, 289, 124, 0x493625],
-				[center, 1053, 125, 0x642d36],
-				[center, 990, 532, 0xf3b25e],
-				[center, 509, 552, 0xc7af94],
-				// [center, 346, 405, 0xc7af95],
-				[center, 1122, 419, 0x864e1f],
-				[center, 1101, 537, 0xebd9b3],
+				[left, 36, 36, 0xf7e3a5],
+				[left, 117, 26, 0xf7efb5],
+				[right, 1173, 37, 0xd6b289],
+				[right, 1253, 128, 0xd6b28c],
+				[right, 1243, 160, 0x4f3b30],
 			]
 		]
 	},
@@ -654,15 +611,14 @@ const multiDetectColors: IMultiDetectColorsOrigin = {
 		desc: [
 			1280, 720,
 			[
-				[left, 36, 24, 0xf7eaab],
-				[center, 685, 356, 0x06295c],
-				[right, 1228, 621, 0xd6c095],
-				[right, 1203, 602, 0x3b1e0d],
-				[center, 798, 40, 0x593615],
-				[right, 1210, 80, 0x7b654f],
-				[left, 212, 624, 0xe67a59],
+				[left, 35, 37, 0xf7e3a5],
+				[left, 115, 26, 0xf7eeb5],
+				[center, 576, 316, 0x1f509d],
+				[right, 674, 313, 0x1b57a4],
+				[center, 559, 403, 0x1861b5],
+				[right, 701, 401, 0x0d3a83],
 			]
-		]
+		],
 	},
 	'巅峰斗技主界面': {
 		desc: [1280, 720,
@@ -798,11 +754,12 @@ const multiDetectColors: IMultiDetectColorsOrigin = {
 		desc: [
 			1280, 720,
 			[
-				[center, 366, 191, 0xc8b29a],
-				[center, 909, 211, 0xcbb59e],
-				[center, 494, 290, 0x46322a],
-				[center, 600, 485, 0xf4b25f],
-				[center, 896, 516, 0xcbb59e],
+				[center, 435, 457, 0xde6952],
+				[center, 530, 484, 0xde6952],
+				[right, 747, 451, 0xf4b25d],
+				[right, 841, 483, 0xf4b25d],
+				[center, 378, 174, 0x6b4539],
+				[right, 913, 535, 0x634131],
 			]
 		]
 	},
@@ -811,10 +768,9 @@ const multiDetectColors: IMultiDetectColorsOrigin = {
 			1280, 720,
 			[
 				[left, 42, 38, 0xf7e5a7],
-				[right, 1194, 34, 0xd6c7a5],
 				[left, 48, 490, 0x3e2822],
-				[left, 49, 603, 0x952d30],
-				[left, 108, 597, 0xa3a3b1],
+				[right, 1252, 632, 0x4a3024],
+				[right, 1221, 667, 0x3c221f],
 			]
 		]
 	},

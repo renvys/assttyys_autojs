@@ -40,7 +40,6 @@ export class Func1100 implements IFuncOrigin {
 		desc: [
 			1280, 720,
 			[
-				[right, 1128, 642, 0xdaccb0],
 				[right, 1154, 647, 0xd6cab8],
 				[right, 1163, 637, 0xc6925d],
 				[right, 1182, 622, 0xbf544f],
@@ -123,18 +122,18 @@ export class Func1100 implements IFuncOrigin {
 			[center, 1280, 720, 510, 426, 570, 458, 1000],
 		]
 	}, { // 8 MuMu分享_微信
-		desc: [
-			1280, 720,
+		desc: [1280, 720,
 			[
-				[center, 429, 666, 0x2e693d],
-				[center, 446, 666, 0xffffff],
-				[center, 472, 650, 0x2e693d],
-				[center, 466, 680, 0xffffff],
-				[center, 443, 684, 0x2e693d],
+				[center, 364, 643, 0x2d693c],
+				[center, 383, 656, 0x2e693d],
+				[center, 342, 680, 0x2d673c],
+				[center, 359, 684, 0x2e693d],
+				[center, 374, 680, 0xffffff],
+				[center, 375, 665, 0xffffff],
 			]
 		],
 		oper: [
-			[center, 1280, 720, 436, 644, 473, 684, 5000],
+			[center, 1280, 720, 345, 649, 381, 686, 1000],
 		]
 	}, { // 9 微信_微信关闭
 		desc: [
@@ -220,7 +219,22 @@ export class Func1100 implements IFuncOrigin {
 		oper: [
 			[center, 1280, 720, 93, 617, 590, 654, 1000],
 		]
-	}
+	}, { // 16 插画下载
+		desc: [1280, 720,
+			[
+				[center, 371, 141, 0x6a4737],
+				[right, 907, 140, 0x674635],
+				[center, 341, 569, 0x604131],
+				[right, 912, 570, 0x644334],
+				[center, 519, 506, 0xdf6851],
+				[right, 750, 510, 0xf3b25e],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 538, 424, 559, 443, 1000],
+			[center, 1280, 720, 432, 492, 536, 529, 1000],
+		]
+	},
 	];
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
 		if (thisScript.global.MT_share === 'start') { // 未完成
@@ -235,24 +249,45 @@ export class Func1100 implements IFuncOrigin {
 			if (thisScript.oper({
 				id: 1100,
 				name: '每周分享蓝票_杂项',
-				operator: [thisOperator[0], thisOperator[1], thisOperator[2], thisOperator[3]]
+				operator: [thisOperator[0], thisOperator[1], thisOperator[2], thisOperator[3], thisOperator[16]]
 			})) {
 				return true;
 			}
-			const prop = files.exists('/storage/emulated/0/Audiobooks') // MuMu 特有
-			if (prop) {
-				if (thisScript.oper({
-					id: 1100,
-					name: '每周分享蓝票_图鉴_MuMu',
-					operator: [thisOperator[8]]
-				})) {
-					return true;
+			let curCnt = 0;
+			const maxCount = 5;
+			while (thisScript.global.MT_share_type === 'mumu' && thisScript.oper({
+				name: '每周分享蓝票_多次点击',
+				operator: [thisOperator[8]]
+			})) {
+				curCnt++;
+				thisScript.keepScreen(false);
+				if (curCnt >= maxCount) {
+					thisScript.myToast('点击微信失败,尝试大神');
+					thisScript.global.MT_share_type = 'phone';
+					sleep(1000);
+					return false;
 				}
-			} else {
+				sleep(1000);
+			}
+			while (thisScript.global.MT_share_type === 'phone' && thisScript.oper({
+				name: '每周分享蓝票_多次点击',
+				operator: [thisOperator[8]]
+			})) {
+				curCnt++;
+				thisScript.keepScreen(false);
+				if (curCnt >= maxCount) {
+					thisScript.myToast('点击大神失败,停止分享');
+					thisScript.global.MT_share_type = 'phone';
+					sleep(1000);
+					return false;
+				}
+				sleep(1000);
+			}
+			{
 				if (thisScript.oper({
 					id: 1100,
 					name: '每周分享蓝票_图鉴_雷电',
-					operator: [thisOperator[4], thisOperator[5], thisOperator[6], thisOperator[15]]
+					operator: [thisOperator[4], thisOperator[5], thisOperator[6], thisOperator[7], thisOperator[15]]
 				})) {
 					return true;
 				}
@@ -260,14 +295,6 @@ export class Func1100 implements IFuncOrigin {
 					back();
 					return true;
 				}
-			}
-			if (thisScript.oper({
-				id: 1100,
-				name: '每周分享蓝票_杂项',
-				operator: [thisOperator[7]]
-			})) {
-				thisScript.global.MT_share = 'back';
-				return true;
 			}
 		} else if (thisScript.global.MT_share === 'back') { // 完成
 			if (thisScript.oper({

@@ -16,62 +16,62 @@ export class Func053 implements IFuncOrigin {
 			type: 'list',
 			data: ['御魂-八岐大蛇', '御魂-业原火', '御魂-日轮之陨', '御魂-永生之海', '御灵', '觉醒-火麒麟', '觉醒-风麒麟', '觉醒-水麒麟', '觉醒-雷麒麟'],
 			default: '御魂-八岐大蛇',
+		}, {
+			name: 'sneak_level',
+			desc: '御魂层数',
+			type: 'list',
+			data: ['默认', '倒数第一', '倒数第二', '倒数第三', '倒数第四'],
+			default: '默认',
 		}]
 	}];
 	operator: IFuncOperatorOrigin[] = [{
 		// 0 探索地图界面
 		desc: '探索地图界面',
 		oper: [
-			[left, 1280, 720, 155, 640, 211, 694, 1000], // 御魂
-			[left, 1280, 720, 346, 634, 404, 695, 1000], // 御灵
-			[left, 1280, 720, 56, 639, 111, 699, 1000], // 觉醒
+			[center, 1280, 720, 168, 645, 210, 674, 1000], // 御魂
+			[center, 1280, 720, 356, 646, 401, 678, 1000], // 御灵
+			[center, 1280, 720, 70, 644, 115, 675, 1000], // 觉醒
 		]
 	}, {
 		// 1 御魂选类型的界面
 		desc: [
 			1280, 720,
 			[
-				[right, 1232, 43, 0xcaa274],
-				[left, 182, 141, 0x323045],
-				[center, 547, 133, 0x5b3232],
-				[right, 889, 147, 0x555534],
-				[right, 1240, 181, 0x344158],
-				[left, 46, 36, 0xf5e2a3],
+				[left, 266, 131, 0xbd975a],
+				[center, 589, 114, 0xd4bd8b],
+				[right, 921, 132, 0x67522e],
+				[right, 1193, 90, 0xa28c5a],
+				[right, 1190, 647, 0x3f3226],
+				[right, 1220, 659, 0xefe3c3],
 			]
 		],
 		oper: [
-			[center, 1280, 720, 85, 117, 325, 503, 500], // 御魂-八岐大蛇
-			[center, 1280, 720, 454, 115, 675, 488, 500], // 御魂-业原火
-			[center, 1280, 720, 802, 122, 1052, 492, 500], // 御魂-日轮之陨
-			[center, 1280, 720, 1152, 126, 1246, 497, 500], // 御魂-永生之海
+			[center, 1280, 720, 129, 319, 294, 386, 1000], // 御魂-八岐大蛇
+			[center, 1280, 720, 452, 289, 604, 371, 1000], // 御魂-业原火
+			[center, 1280, 720, 760, 278, 919, 348, 1000], // 御魂-日轮之陨
+			[center, 1280, 720, 1054, 253, 1212, 318, 1000], // 御魂-永生之海
 		]
-	}, {
-		// 2 觉醒选类型的界面
+	}, { // 2 觉醒选类型的界面
 		desc: [
 			1280, 720,
 			[
-				[left, 46, 46, 0xc2cbe2],
-				[left, 250, 42, 0x583716],
-				[right, 1178, 44, 0xd7b38a],
-				[right, 1240, 42, 0xd3af83],
-				[left, 195, 561, 0x6d444d],
-				[center, 528, 545, 0x9b9e7a],
-				[center, 817, 552, 0x6d7f9a],
-				[right, 1095, 553, 0x927ca2],
+				[left, 260, 366, 0xef6658],
+				[center, 581, 298, 0x7fc079],
+				[right, 888, 360, 0x2ebad7],
+				[right, 1187, 297, 0x784cab],
 			]
 		],
 		oper: [
-			[center, 1280, 720, 86, 131, 299, 557, 500], // 觉醒-火麒麟
-			[center, 1280, 720, 385, 137, 589, 548, 500], // 觉醒-风麒麟
-			[center, 1280, 720, 679, 138, 898, 556, 500], // 觉醒-水麒麟
-			[center, 1280, 720, 976, 138, 1199, 559, 500], // 觉醒-雷麒麟
+			[center, 1280, 720, 138, 361, 300, 422, 1000], // 觉醒-火麒麟
+			[center, 1280, 720, 441, 293, 610, 344, 1000], // 觉醒-风麒麟
+			[center, 1280, 720, 744, 347, 911, 411, 1000], // 觉醒-水麒麟
+			[center, 1280, 720, 1053, 290, 1206, 346, 1000], // 觉醒-雷麒麟
 		]
-	}, {
-		// 3 御灵-暗神龙
+	}, { // 3 御灵-暗神龙
 		desc: [
 			1280, 720,
 			[
-				[left, 19, 40, 0xc6cde2],
+				[left, 44, 36, 0xf7eaac],
 				[right, 1240, 40, 0xd3af84],
 				[right, 1174, 41, 0xd7b389],
 				[left, 136, 179, 0x2b2b44],
@@ -82,99 +82,121 @@ export class Func053 implements IFuncOrigin {
 		oper: [
 			[center, 1280, 720, 126, 136, 300, 621, 500],
 		]
-	}, {
-		// 4 御灵-暗白藏主
+	}, { // 4 御魂层数滑动
 		desc: [
 			1280, 720,
 			[
-				[left, 19, 40, 0xc6cde2],
-				[right, 1240, 40, 0xd3af84],
-				[right, 1174, 41, 0xd7b389],
-				[center, 439, 147, 0x47252e],
-				[center, 586, 168, 0x4f2b34],
-				[center, 509, 441, 0xf9f8f8],
-				[center, 546, 387, 0xc26676],
+				[left, 44, 38, 0xf6e8a9],
+				[left, 125, 28, 0xf9eeb7],
+				[left, 58, 50, 0xf1d793],
+				[left, 95, 187, 0x8c7ba8],
+				[left, 67, 194, 0x8d7da8],
 			]
 		],
 		oper: [
-			[center, 1280, 720, 413, 146, 587, 617, 500],
+			[center, 1280, 720, 99, 636, 186, 678, 1000], // 滑动_开启点
+			[center, 1280, 720, 108, 88, 172, 125, 1000], // 滑动_结束点
+			[center, 1280, 720, 107, 324, 202, 351, 1000], // 倒数第四
+			[center, 1280, 720, 111, 428, 182, 451, 1000], // 倒数第三
+			[center, 1280, 720, 107, 535, 180, 557, 1000], // 倒数第二
+			[center, 1280, 720, 105, 639, 180, 662, 1000], // 倒数第一
 		]
-	}, {
-		// 5 御灵-暗黑豹
-		desc: [
-			1280, 720,
+	}, { // 5 御魂入口_第一位置
+		desc: [1280, 720,
 			[
-				[left, 19, 40, 0xc6cde2],
-				[right, 1240, 40, 0xd3af84],
-				[right, 1174, 41, 0xd7b389],
-				[center, 802, 168, 0x23232b],
-				[center, 760, 190, 0x909193],
-				[center, 867, 419, 0xf9f9f9],
-				[center, 841, 401, 0x421f1d],
+				[left, 92, 657, 0xd0aa17],
+				[left, 110, 646, 0xb1860e],
+				[left, 73, 641, 0x91190d],
+				[left, 96, 636, 0xb58508],
+				[left, 85, 673, 0xa12118],
 			]
 		],
 		oper: [
-			[center, 1280, 720, 706, 148, 886, 610, 500],
+			[center, 1280, 720, 72, 644, 116, 678, 1000],
 		]
-	}, {
-		// 6 御灵-暗孔雀
-		desc: [
-			1280, 720,
+	}, { // 6 御魂入口_第二位置
+		desc: [1280, 720,
 			[
-				[left, 19, 40, 0xc6cde2],
-				[right, 1240, 40, 0xd3af84],
-				[right, 1174, 41, 0xd7b389],
-				[center, 1121, 254, 0x50a3b2],
-				[center, 1021, 333, 0x565466],
-				[center, 1080, 497, 0x8293a2],
-				[center, 1055, 450, 0x8384bc],
+				[left, 168, 641, 0x8d170e],
+				[left, 193, 637, 0xb98706],
+				[left, 181, 673, 0xa22117],
+				[left, 195, 667, 0xecd22d],
+				[left, 206, 647, 0xae820e],
 			]
 		],
 		oper: [
-			[center, 1280, 720, 993, 149, 1169, 616, 500],
+			[center, 1280, 720, 165, 641, 211, 681, 1000],
 		]
-	}, {
-		// 7 探索地图界面_含时空秘境
-		desc: '探索地图界面_含时空秘境',
-		oper: [
-			[left, 1280, 720, 155, 640, 211, 694, 1000], // 御魂
-			[left, 1280, 720, 444, 638, 507, 701, 1000], // 御灵
-			[left, 1280, 720, 56, 639, 111, 699, 1000], // 觉醒
-		]
-	}];
+	},];
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
-
 		const thisconf = thisScript.scheme.config['53'];
 		// '御魂-八岐大蛇', '御魂-业原火', '御魂-日轮之陨', '御魂-永生之海'
 		let operator: IFuncOperator[];
 		if ('御魂-八岐大蛇' === thisconf.challenge_type) {
 			operator = [{
-				desc: thisOperator[0].desc,
-				oper: [thisOperator[0].oper[0]]
+				desc: thisOperator[5].desc,
+				oper: [thisOperator[5].oper[0]]
+			}, {
+				desc: thisOperator[6].desc,
+				oper: [thisOperator[6].oper[0]]
 			}, {
 				desc: thisOperator[1].desc,
 				oper: [thisOperator[1].oper[0]]
 			}]
+			if (thisScript.global.sneak_level_open && thisScript.oper({
+				id: 52,
+				name: '八岐大蛇_滑动',
+				operator: [{ desc: thisOperator[4].desc }]
+			})) {
+				thisScript.regionBezierSwipe(thisOperator[4].oper[0], thisOperator[4].oper[1], [400, 500], 1500);
+				switch (thisconf.sneak_level) {
+					case '倒数第四':
+						thisScript.regionClick([thisOperator[4].oper[2]]);
+						break;
+					case '倒数第三':
+						thisScript.regionClick([thisOperator[4].oper[3]]);
+						break;
+					case '倒数第二':
+						thisScript.regionClick([thisOperator[4].oper[4]]);
+						break;
+					case '倒数第一':
+						thisScript.regionClick([thisOperator[4].oper[5]]);
+						break;
+					case '默认':
+						break;
+				}
+				thisScript.global.sneak_level_open = false;
+				return true;
+			}
 		} else if ('御魂-业原火' === thisconf.challenge_type) {
 			operator = [{
-				desc: thisOperator[0].desc,
-				oper: [thisOperator[0].oper[0]]
+				desc: thisOperator[5].desc,
+				oper: [thisOperator[5].oper[0]]
+			}, {
+				desc: thisOperator[6].desc,
+				oper: [thisOperator[6].oper[0]]
 			}, {
 				desc: thisOperator[1].desc,
 				oper: [thisOperator[1].oper[1]]
 			}]
 		} else if ('御魂-日轮之陨' === thisconf.challenge_type) {
 			operator = [{
-				desc: thisOperator[0].desc,
-				oper: [thisOperator[0].oper[0]]
+				desc: thisOperator[5].desc,
+				oper: [thisOperator[5].oper[0]]
+			}, {
+				desc: thisOperator[6].desc,
+				oper: [thisOperator[6].oper[0]]
 			}, {
 				desc: thisOperator[1].desc,
 				oper: [thisOperator[1].oper[2]]
 			}]
 		} else if ('御魂-永生之海' === thisconf.challenge_type) {
 			operator = [{
-				desc: thisOperator[0].desc,
-				oper: [thisOperator[0].oper[0]]
+				desc: thisOperator[5].desc,
+				oper: [thisOperator[5].oper[0]]
+			}, {
+				desc: thisOperator[6].desc,
+				oper: [thisOperator[6].oper[0]]
 			}, {
 				desc: thisOperator[1].desc,
 				oper: [thisOperator[1].oper[3]]
@@ -183,12 +205,9 @@ export class Func053 implements IFuncOrigin {
 		// '御灵', '觉醒-火麒麟', '觉醒-风麒麟', '觉醒-水麒麟', '觉醒-雷麒麟'
 		else if ('御灵' === thisconf.challenge_type) {
 			operator = [{
-				desc: thisOperator[7].desc,
-				oper: [thisOperator[7].oper[1]]
-			}, {
 				desc: thisOperator[0].desc,
 				oper: [thisOperator[0].oper[1]]
-			}, thisOperator[3], thisOperator[4], thisOperator[5], thisOperator[6]]
+			}, thisOperator[3]]
 		} else if ('觉醒-火麒麟' === thisconf.challenge_type) {
 			operator = [{
 				desc: thisOperator[0].desc,

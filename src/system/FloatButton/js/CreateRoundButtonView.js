@@ -11,6 +11,7 @@
 function CreateRoundButtonView(name, mGlobal) {
     let view, tag, items;
     let mEventAction = null;
+    let viewClickEvent = null;
     let state = null;
     tag = name || '';
 
@@ -20,22 +21,30 @@ function CreateRoundButtonView(name, mGlobal) {
         viewPost(() => {
             let value;
             view.setPadding(mGlobal.padding, mGlobal.padding, mGlobal.padding, mGlobal.padding);
-            view.on('click', () => {
+            viewClickEvent = (notTrigger) => {
                 if (state != null) {
-                    if (mGlobal.state.anim) return;
-                    mGlobal.anim.stateChanged(state, items, view);
-                    state = !state;
+                    const flipState = () => {
+                        if (!mGlobal.state.anim) { // 动画锁解除
+                            mGlobal.anim.stateChanged(state, items, view); // 播放动画
+                            state = !state; // 翻转状态
+                        } else {
+                            setTimeout(flipState, 20); // 动画还在，20ms 后重试
+                        }
+                    };
+                    flipState();
                 }
-                if (mEventAction == null) {
-                    value = mGlobal.eventActions.item_click(view, tag, state);
-                    if (!value || value == undefined) {
-                        mGlobal.state.menuOpen = false;
-                    };
-                } else {
-                    value = mEventAction(view, tag, state);
-                    if (!value || value == undefined) {
-                        mGlobal.state.menuOpen = false;
-                    };
+                if (!notTrigger) {
+                    if (mEventAction == null) {
+                        value = mGlobal.eventActions.item_click(view, tag, state);
+                        if (!value || value == undefined) {
+                            mGlobal.state.menuOpen = false;
+                        };
+                    } else {
+                        value = mEventAction(view, tag, state);
+                        if (!value || value == undefined) {
+                            mGlobal.state.menuOpen = false;
+                        };
+                    }
                 }
                 if (mGlobal.time.autoCloseMenu != 0) {
                     if (mGlobal.timer != null) {
@@ -46,6 +55,9 @@ function CreateRoundButtonView(name, mGlobal) {
                         mGlobal.timer = null;
                     }, mGlobal.time.autoCloseMenu);
                 }
+            }
+            view.on('click', () => {
+                viewClickEvent();
             });
         });
     }
@@ -80,14 +92,21 @@ function CreateRoundButtonView(name, mGlobal) {
         return this;
     }
 
+    this.setRotation = function (rotation) {
+        viewPost(() => view.setRotation(rotation));
+        return this;
+    }
+
     this.setColor = function (colorStr) {
         viewPost(() => view.attr('backgroundTint', colorStr));
         return this;
     }
 
-    this.setChecked = function (value) {
+    this.setChecked = function (value, notTrigger) {
         if (state == value || state == null) return this;
-        viewPost(() => view.performClick());
+        viewPost(() => {
+            viewClickEvent(notTrigger);
+        });
         return this;
     }
 
@@ -135,6 +154,14 @@ function CreateRoundButtonView(name, mGlobal) {
         this.color2 = function (value) {
             items.color2 = value;
             return this;
+        }
+
+        this.rotation1 = function (rotation) {
+            items.rotation1 = rotation;
+        }
+
+        this.rotation2 = function (rotation) {
+            items.rotation2 = rotation;
         }
 
         this.setAnimTime = function (value) {

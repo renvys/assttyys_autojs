@@ -43,6 +43,7 @@ export default function webviewFuncList() {
 
 	// 点击保存，设置当前方案
 	webview.on('setCurrentScheme').subscribe(([schemeName, done]) => {
+		script.isPause = false;
 		setCurrentScheme(schemeName, store);
 		done();
 	});
@@ -72,7 +73,9 @@ export default function webviewFuncList() {
 		const defaultLaunchAppList = storeSettings.defaultLaunchAppList || [];
 		if (defaultLaunchAppList.length == 0) {
 			done(null);
-			script.rerun();
+			script.stop();
+			sleep(200);
+			script.run();
 			context.startActivity(app.intent({
 				action: android.content.Intent.ACTION_MAIN,
 				category: android.content.Intent.CATEGORY_HOME,
@@ -80,7 +83,8 @@ export default function webviewFuncList() {
 			}));
 		} else if (defaultLaunchAppList.length === 1) {
 			done(null);
-			script.rerun();
+			script.stop();
+			script.run();
 			launchPackage(defaultLaunchAppList[0]);
 		} else {
 			const storeSettings = storeCommon.get('settings', {});

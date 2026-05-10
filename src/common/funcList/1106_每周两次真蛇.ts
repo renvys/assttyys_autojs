@@ -8,7 +8,7 @@ const right = 2;
 export class Func1106 implements IFuncOrigin {
 	id = 1106;
 	name = '每周两次真蛇';
-	desc: '需排序在"001准备"之前';
+	desc = '使用刷出真蛇功能需排序在"006挑战"之前';
 	config = [{
 		desc: '切换御魂(需要打开509+510快速坐标模式)',
 		config: [{
@@ -31,18 +31,17 @@ export class Func1106 implements IFuncOrigin {
 		}]
 	}];
 	operator: IFuncOperatorOrigin[] = [{ // 0 探索_真蛇
-		desc: [
-			1280, 720,
+		desc: [1280, 720,
 			[
-				[left, 56, 203, 0x215543],
-				[left, 101, 203, 0x271f1b],
-				[left, 72, 230, 0x809074],
-				[left, 89, 227, 0x18f7c2],
-				[left, 45, 233, 0x231716],
+				[left, 52, 141, 0x0b422c],
+				[left, 51, 171, 0x08412e],
+				[left, 62, 162, 0x687d68],
+				[left, 72, 151, 0x08412d],
+				[left, 57, 140, 0x2c352d],
 			]
 		],
 		oper: [
-			[center, 1280, 720, 33, 187, 109, 245, 1000],
+			[center, 1280, 720, 35, 135, 77, 170, 1000],
 		]
 	}, { // 1 真八岐大蛇界面
 		desc: [
@@ -103,18 +102,16 @@ export class Func1106 implements IFuncOrigin {
 		],
 		retest: 1000,
 	}, { // 5 真蛇出现
-		desc: [
-			1280, 720,
+		desc: [1280, 720,
 			[
-				[left, 169, 636, 0x151919],
-				[left, 237, 637, 0x1f4133],
-				[left, 240, 655, 0x164b36],
-				[left, 244, 694, 0x25654a],
-				[left, 116, 701, 0x123d2b],
+				[left, 283, 671, 0xadb98e],
+				[center, 356, 692, 0x151f1b],
+				[center, 372, 707, 0x103425],
+				[center, 460, 700, 0x205e43],
 			]
 		],
 		oper: [
-			[center, 1280, 720, 115, 646, 203, 683, 1000],
+			[center, 1280, 720, 325, 667, 448, 704, 1000],
 		]
 	}, { // 6 真蛇_剩余一次
 		desc: [
@@ -155,7 +152,23 @@ export class Func1106 implements IFuncOrigin {
 		oper: [
 			[center, 1280, 720, 584, 454, 694, 493, 1000],
 		]
-	}];
+	}, { // 9 探索地图界面
+		desc: '探索地图界面',
+	}, { // 10 通关弹窗
+		desc: [1280, 720,
+			[
+				[left, 273, 127, 0xe5c87a],
+				[center, 346, 200, 0xd7a855],
+				[center, 345, 321, 0xb77a35],
+				[center, 333, 386, 0xaf7430],
+				[right, 1220, 53, 0xe8d4cf],
+				[right, 1224, 612, 0xead890],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 1206, 40, 1238, 68, 1000],
+		]
+	},];
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
 		const thisConf = thisScript.scheme.config['1106'];
 		if (thisScript.global.zhenShe > 0) { // 未完成
@@ -177,11 +190,10 @@ export class Func1106 implements IFuncOrigin {
 				name: '每周两次真蛇',
 				operator: [thisOperator[4]]
 			})) {
-				thisScript.global.zhenShe--;
 				thisScript.global.change_shikigami_flag = true; // 进入式神录
 				thisScript.global.change_shikigami_state = 'flushed';// 再次更换御魂
-				thisScript.global.preset_once_groupNum = thisScript.scheme.config?.['510'].groupNum as number;
-				thisScript.global.preset_once_defaultNum = thisScript.scheme.config?.['510'].defaultNum as number;
+				thisScript.global.preset_once_groupNum = thisScript.scheme.config?.['510']?.groupNum as number;
+				thisScript.global.preset_once_defaultNum = thisScript.scheme.config?.['510']?.defaultNum as number;
 				return true;
 			}
 			if (thisScript.oper({
@@ -191,21 +203,47 @@ export class Func1106 implements IFuncOrigin {
 			})) {
 				thisScript.global.zhenShe = 1;
 			}
-			if (thisScript.oper({
+			// 用循环来保证多次点击只计数一次
+			let curCnt = 0;
+			const maxCount = 10;
+			while (thisScript.oper({
 				id: 1106,
 				name: '每周两次真蛇_杂项',
-				operator: [thisOperator[1], thisOperator[2], thisOperator[3]
-					, thisOperator[7], thisOperator[8]]
+				operator: [thisOperator[1]]
 			})) {
-				return true;
+				curCnt++;
+				thisScript.keepScreen();
+				if (curCnt >= maxCount) {
+					thisScript.myToast(`连续执行${maxCount}次挑战后未开始，脚本自动停止`);
+					thisScript.doPush(thisScript, { text: `[${thisScript.schemeHistory.map(item => item.schemeName).join('、')}]已停止，请查看。`, before() { thisScript.myToast('脚本即将停止，正在上传数据'); } });
+					thisScript.stop();
+					sleep(2000);
+					return false;
+				}
+				if (curCnt === 1) {
+					thisScript.global.zhenShe--;
+				}
 			}
 			return false;
 		} else if (thisScript.global.zhenShe == 0) {
-			thisScript.doPush(thisScript, { text: '已完成两次真蛇，请查看。', before() { thisScript.myToast('脚本即将停止，正在上传数据'); } });
-			thisScript.global.zhenShe = -1; // 已完成
-			return true
-		} else {
+			if (thisScript.oper({
+				id: 1106,
+				name: '每周两次真蛇_探索界面',
+				operator: [thisOperator[9]]
+			})) {
+				thisScript.doPush(thisScript, { text: '已完成两次真蛇，请查看。', before() { thisScript.myToast('脚本即将停止，正在上传数据'); } });
+				thisScript.global.zhenShe = -1; // 已完成
+				return true
+			}
+		} else if (thisScript.global.zhenShe == -1) {
 			return thisScript.rerun(thisConf.next_scheme);
+		}
+		if (thisScript.oper({
+			id: 1106,
+			name: '每周两次真蛇_弹窗',
+			operator: [thisOperator[2], thisOperator[4], thisOperator[8], thisOperator[10]]
+		})) {
+			return true;
 		}
 	}
 }

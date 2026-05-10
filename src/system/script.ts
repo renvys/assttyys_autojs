@@ -18,6 +18,8 @@ import { IFunc, IFuncOrigin } from '@/interface/IFunc';
 import { IScheme } from '@/interface/IScheme';
 import { IMultiDetectColors, IMultiFindColors } from '@/interface/IMultiColor';
 import { globalRoot, globalRootType } from '@/system/GlobalStore/index';
+import { superGlobalRoot, superGlobalRootType } from '@/system/GlobalStore/index';
+import { sharedData } from '@/system/Schedule/index';
 import schedule, { Job } from '@/system/Schedule';
 import { MyFloaty } from '@/system/MyFloaty';
 import ncnnBgyx from '@/system/ncnn/ncnnBgyx';
@@ -46,6 +48,7 @@ export class Script {
 	job: Job;
 	schedule: typeof schedule;
 	ncnnBgyx = ncnnBgyx;
+	isPause: boolean;
 
 	/**
 	 * 运行次数，下标为funcList中的id，值为这个func成功执行的次数；
@@ -54,11 +57,14 @@ export class Script {
 	runTimes: Record<string, number>;
 	lastFunc: number; // 最后执行成功的funcId
 	global: globalRootType; // 每次启动重置为空对象，用于功能里面存变量
+	superGlobal: superGlobalRootType; // 切换方案不重置功能里面的变量
 
 	/**
+	 * @deprecated
 	 * @description 方案运行中参数
 	 */
 	runtimeParams: Record<string, unknown> | null;
+
 
 	// 设备信息
 	device: any;
@@ -100,6 +106,7 @@ export class Script {
 		this.runTimes = {};
 		this.lastFunc = null; // 最后执行成功的funcId
 		this.global = merge({}, globalRoot); // 每次启动重置为空对象，用于功能里面存变量
+		this.superGlobal = merge({}, superGlobalRoot);
 		this.device = {
 			width: getWidthPixels(),
 			height: getHeightPixels()
@@ -156,10 +163,7 @@ export class Script {
 				.replace(/[sS]/g, '5')
 				.replace(/[oO]/g, '0')
 				.replace(/[zZ]/g, '2');
-			if (item.label.match(/^\d+$/)) {
-				return true;
-			}
-			return false;
+			return item
 		});
 	}
 
@@ -358,17 +362,19 @@ export class Script {
 	 * @param {String} key src\common\multiColors.js的key
 	 * @param {Region} inRegion 多点找色区域
 	 * @param {Boolean} multiRegion 给true的话表示inRegion为region的数组
+	 * @param {Boolean} openmisalignedMatch 给true的话表示开启错位匹配(非错误匹配比较苛刻)
 	 * @returns
 	 */
-	findMultiColor(key: string, inRegion?: any, multiRegion?: boolean, noLog?: boolean) {
+	findMultiColor(key: string, inRegion?: any, multiRegion?: boolean, noLog?: boolean, openmisalignedMatch?: boolean) {
 		this.initRedList();
 		if (!multiRegion) {
 			const region = inRegion || this.multiFindColors[key].region;
 			const desc = this.multiFindColors[key].desc;
 			const similar = this.multiFindColors[key].similar || this.scheme.commonConfig.multiColorSimilar
+			const misalignedMatch = openmisalignedMatch !== undefined ? openmisalignedMatch : true;
 			for (let i = 0; i < desc.length; i++) {
 				const item = desc[i];
-				const point = this.helperBridge.helper.FindMultiColor(region[0], region[1], region[2], region[3], item, similar, true);
+				const point = this.helperBridge.helper.FindMultiColor(region[0], region[1], region[2], region[3], item, similar, misalignedMatch);
 				if (point.x !== -1) {
 					if (!noLog) {
 						console.log(`[${key}]第${i}个查找成功， 坐标为：(${point.x}, ${point.y})`);
@@ -535,15 +541,24 @@ export class Script {
 	 */
 	_run(job?: Job): void {
 		if (this.runThread) return;
-		this.job = job;
 		const self = this;
 		try {
 			this.initFuncList();
 			this.initMultiFindColors();
-			this.runDate = new Date();
 			this.currentDate = new Date();
-			this.runTimes = {};
-			this.global = merge({}, globalRoot);
+			if (this.isPause) {
+				myToast(`继续方案[${this.scheme.schemeName}]`);
+				console.log(`global: ${JSON.stringify(this.global, null, 2)}`);
+				console.log(`superGlobal: ${JSON.stringify(this.superGlobal, null, 2)}`);
+			} else {
+				this.runTimes = {}; // 全新启动需重置该参数
+				this.global = merge({}, globalRoot); // 全新启动需重置该参数
+				this.job = job;
+				this.runDate = new Date(); // 全新启动需重之运行时间
+				myToast(`运行方案[${this.scheme.schemeName}]`);
+				this.schemeHistory.push(this.scheme);
+			}
+			this.isPause = false;
 			if (null === this.scheme) {
 				if (typeof self.stopCallback === 'function') {
 					self.stopCallback();
@@ -568,10 +583,7 @@ export class Script {
 		// img.saveTo('/sdcard/testimg.png');
 		// img.recycle();
 		// test end
-		myToast(`运行方案[${this.scheme.schemeName}]`);
-		this.schemeHistory.push(this.scheme);
-		// console.log(`运行方案[${this.scheme.schemeName}]`);
-		this.runThread = threads.start(function () {
+		const runThread = threads.start(function () {
 			try {
 				// eslint-disable-next-line no-constant-condition
 				while (true) {
@@ -597,6 +609,7 @@ export class Script {
 				}
 			}
 		});
+		this.runThread = runThread;
 		if (typeof this.runCallback === 'function') {
 			this.runCallback();
 		}
@@ -668,19 +681,22 @@ export class Script {
 			if (typeof this.stopCallback === 'function') {
 				this.stopCallback();
 			}
-			if (!flag) {
+			if (!flag && !script.isPause) {
 				this.schemeHistory = [];
 			}
-			if (!flag && this.job) {
+			console.log('job:' + this.job?.name);
+			if (!flag && this.job && !this.isPause) {
 				this.job.doDone();
 			}
-			this.runThread.interrupt();
+			this.runThread && this.runThread.interrupt();
 		}
 		this.runThread = null;
 	}
 
 	/**
 	 * 重新运行，一般在运行过程中通过setCurrenScheme切换方案后调用，停止再运行
+	 * @param schemeName
+	 * @param params 已废弃，后续使用请不要传递该参数
 	 */
 	rerun(schemeName?: unknown, params?: Record<string, unknown>) {
 		if ('__停止脚本__' === schemeName) {
@@ -716,6 +732,10 @@ export class Script {
 			return;
 		} else if ('__不做动作__' === schemeName) {
 			return false;
+		} else if ('__暂停__' === schemeName) {
+			this.pause();
+			sleep(3000);
+			return;
 		} else if (schemeName) {
 			const schemeList = store.get('schemeList');
 			if (!schemeList.some(item => item.schemeName.includes(schemeName))) {
@@ -739,6 +759,11 @@ export class Script {
 		}, 510);
 	}
 
+	// 暂停
+	pause() {
+		this.isPause = true;
+		this.stop();
+	}
 	/**
 	 * 关键函数，操作函数
 	 * 针对func进行多点比色，成功的话按顺序点击oper数组
@@ -768,7 +793,7 @@ export class Script {
 					rs = true;
 				}
 				if (rs) {
-					if (drawFloaty.instacne && item.desc) {
+					if (drawFloaty.instacne && item.desc && currFunc.id) {
 						let thisDesc: any = item.desc;
 						if (typeof item.desc === 'string') {
 							thisDesc = this.multiDetectColors[item.desc as string].desc;
@@ -875,13 +900,14 @@ export class Script {
 		if (storeSettings.defaultLaunchAppList && storeSettings.defaultLaunchAppList.length) {
 			const packageName = storeSettings.defaultLaunchAppList[0]
 			console.log(`正在启动应用${packageName}`);
+			device.wakeUpIfNeeded()
 			app.launchPackage(packageName);
 		} else {
 			myToast('未配置关联应用，不启动');
 		}
 	}
 
-	stopRelatedApp() {
+	stopRelatedApp(getPackageName?: string) {
 		const storeSettings = storeCommon.get('settings', {});
 		if (storeSettings.defaultLaunchAppList && storeSettings.defaultLaunchAppList.length) {
 			let am = null;
@@ -901,18 +927,28 @@ export class Script {
 				// 目标进程就变成后台了，就可以通过杀后台进程实现杀应用
 				am = context.getSystemService(context.ACTIVITY_SERVICE);
 			}
-
 			const ret = [];
-			storeSettings.defaultLaunchAppList.forEach(packageName => {
+			if (getPackageName) {
 				if (am) {
-					am.killBackgroundProcesses(packageName);
+					am.killBackgroundProcesses(getPackageName);
 				} else {
-					$shell(`am force-stop ${packageName}`, true);
+					$shell(`am force-stop ${getPackageName}`, true);
 				}
-				myToast(`杀应用${packageName}`);
-				ret.push(packageName);
+				myToast(`杀应用${getPackageName}`);
+				ret.push(getPackageName);
 				sleep(100);
-			});
+			} else {
+				storeSettings.defaultLaunchAppList.forEach(packageName => {
+					if (am) {
+						am.killBackgroundProcesses(packageName);
+					} else {
+						$shell(`am force-stop ${packageName}`, true);
+					}
+					myToast(`杀应用${packageName}`);
+					ret.push(packageName);
+					sleep(100);
+				});
+			}
 			sleep(500);
 			return ret;
 		} else {
@@ -938,11 +974,23 @@ export class Script {
 		randomSleep = randomSleep || this.scheme.commonConfig.afterClickDelayRandom || 0
 		this.helperBridge.regionBezierSwipe(operSrc, operDest, duration, baseSleep, randomSleep, type)
 	}
+
+	parseName(input: string): string[] {
+		if (!input) return [];
+		return input
+			.split(/[,，]/)
+			.map(name => name.trim())
+			.filter(Boolean);
+	}
 }
 
-const script = new Script();
+export const script = new Script();
 
 events.broadcast.on('SCRIPT_STOP', () => {
+	sharedData.runTime = script.superGlobal.runTime;
+	if (!script.isPause) {
+		script.superGlobal = merge({}, superGlobalRoot)
+	}
 	script._stop();
 });
 

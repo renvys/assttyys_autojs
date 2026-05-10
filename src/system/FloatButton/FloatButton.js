@@ -8,6 +8,8 @@
  * @LastEditTime: 2021-04-19 16:44:52
  */
 /*eslint-disable */
+importClass(android.view.View);
+
 global.FloatButton = function () {
     require('./widget/RoundButton');
     let fbUtil = require('./js/init');
@@ -15,7 +17,7 @@ global.FloatButton = function () {
     let Anim = require('./js/Anim');
     let mAnim;
     let mWindows = { logo: null, menu: null };
-    let mMenuViews = {};
+    let mMenuViews = [];
     let mViewUtils = {};
     let mItemsXY = [];
     let mActions = new Array();
@@ -138,17 +140,37 @@ global.FloatButton = function () {
     }
 
     FloatButton.prototype.addItem = function (name) {
-        let viewUtil = new CreateRoundButtonView(name, mConfig);//创建视图
-        mViewUtils[name] = viewUtil;//将工具类保存到集合
-        mMenuViews[name] = viewUtil.getView();//将视图信息保存到集合
+        let viewUtil = new CreateRoundButtonView(name, mConfig);
+        mViewUtils[name] = viewUtil;
+        mMenuViews.push({ name, view: viewUtil.getView() });
         postAction(() => {
-            mWindows.menu.content.addView(mMenuViews[name]);//添加视图
-            updateItemCoordinate();//更新坐标
-            updateMenuWindow();//更新悬浮窗
-            mAnim.createAnim(mItemsXY, mMenuViews);//创建动画
+            mWindows.menu.content.addView(viewUtil.getView());
+            updateItemCoordinate();
+            updateMenuWindow();
+            mAnim.createAnim(mItemsXY, mMenuViews);
         });
         return viewUtil;
     }
+
+    FloatButton.prototype.hideItem = function (name) {
+        let item = mMenuViews.find(it => it.name === name);
+        if (!item) {
+            console.warn("menu item not found:", name);
+            console.log("menuViews:", mMenuViews);
+            return;
+        }
+        ui.run(() => item.view.setVisibility(View.GONE));
+    };
+
+    FloatButton.prototype.showItem = function (name) {
+        let item = mMenuViews.find(it => it.name === name);
+        if (!item) {
+            console.warn("menu item not found:", name);
+            console.log("menuViews:", mMenuViews);
+            return;
+        }
+        ui.run(() => item.view.setVisibility(View.VISIBLE));
+    };
 
     FloatButton.prototype.on = function (eventType, eventAction) {
         mConfig.eventActions[eventType] = eventAction;
@@ -304,12 +326,12 @@ global.FloatButton = function () {
         let size = mConfig.size / 2;
         let [w1, y1] = [mWindows.menu.getWidth(), lw.getY()];
         let x = (mConfig.state.direction ? w - w1 - size + mConfig.padding : -mConfig.padding + size);
-        let y = y1 - mConfig.menuRadius;
+        let y = y1 - mConfig.menuRadius - mConfig.size - 5;
         let mGravity = 'center_vertical' + (mConfig.state.direction ? '|right' : '');
         ui.run(() => {
             let view;
-            for (let i in mMenuViews) {
-                view = mMenuViews[i];
+            for (let item of mMenuViews) { // 改为遍历数组
+                view = item.view;
                 view.attr('layout_gravity', mGravity)
             }
         });
@@ -320,9 +342,13 @@ global.FloatButton = function () {
     function updateItemCoordinate() {
         mItemsXY = [];
         let arr = { x: [], y: [] };
-        let len = Object.keys(mMenuViews).length
-        // let angle = 360 / (len * 2 - 2);
-        let angle = mConfig.angle / (len - 1);
+        let len = mMenuViews.length; // 改为获取数组长度
+        let angle;
+        if (mMenuViews.some(item => item.name === 'Pause')) {
+            angle = mConfig.angle / (len - 2);
+        } else {
+            angle = mConfig.angle / (len - 1);
+        }
         let firstAngle = 90 - mConfig.angle / 2;
         let degree, value, x, y;
         let mr = mConfig.menuRadius;
@@ -331,22 +357,21 @@ global.FloatButton = function () {
             arr.x[i] = [];
             arr.y[i] = [];
             for (let e = 0; e < len; e++) {
-                // value = Math.PI * 2 / 360 * (degree - 90);
-                // x = parseInt(0 + Math.cos(value) * mr);
-                // y = parseInt(0 + Math.sin(value) * mr);
-                // arr.x[i][e] = (Math.abs(x) < 10 ? 0 : x);
-                // arr.y[i][e] = (Math.abs(y) < 10 ? 0 : y);
-                // i ? degree += angle : degree -= angle;
-                value = degree * Math.PI / 180;
-                x = parseInt(mr * Math.sin(value));
-                y = -parseInt(mr * Math.cos(value));
-                arr.x[i][e] = (Math.abs(x) < 10 ? 0 : x);
-                arr.y[i][e] = (Math.abs(y) < 10 ? 0 : y);
-                i ? degree += angle : degree -= angle;
+                if (mMenuViews[e].name !== 'Pause') {
+                    value = degree * Math.PI / 180;
+                    x = parseInt(mr * Math.sin(value));
+                    y = -parseInt(mr * Math.cos(value));
+                    arr.x[i][e] = (Math.abs(x) < 10 ? 0 : x);
+                    arr.y[i][e] = (Math.abs(y) < 10 ? 0 : y);
+                    i ? degree += angle : degree -= angle;
+                } else {
+                    arr.x[i][e] = arr.x[i][0];
+                    arr.y[i][e] = arr.y[i][0] - mConfig.size - 5;
+                }
             }
         }
         mItemsXY = arr;
-        mWindows.menu.setSize(mr + mConfig.size, mr * 2 + mConfig.size);
+        mWindows.menu.setSize(mr + mConfig.size, mr * 2 + mConfig.size * 3 + 10);
     }
 
     function ObjectDefinePro(obj, key, action) {

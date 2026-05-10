@@ -6,6 +6,7 @@ export interface IScheme {
     groupNames?: string[];
     inner?: boolean;
     star?: boolean;
+    hidden?: boolean;
 
     /**
      * 功能id的清单
@@ -13,7 +14,7 @@ export interface IScheme {
     list: number[];
     config?: {
         [key: number]: {
-            [key: string]: string | boolean | number
+            [key: string]: string | boolean | number | string[]
         }
     };
     commonConfig?: {
