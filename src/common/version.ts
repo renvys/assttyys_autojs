@@ -1476,6 +1476,9 @@ export const versionList = [{
 }, {
 	version: '20260110_01',
 	desc: 'fix: 修复寄样点击体力点到寮活动',
+}, {
+	version: '20260201_01',
+	desc: 'fix: 修复六道事件识别到右上角地图',
 }];
 
 export default versionList[versionList.length - 1].version;
