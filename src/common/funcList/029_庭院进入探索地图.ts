@@ -1,8 +1,8 @@
 import { Script } from '@/system/script';
 import { IFuncOrigin, IFuncOperatorOrigin, IFuncOperator } from '@/interface/IFunc';
 // const normal = -1; //定义常量
-// const left = 0;
-// const center = 1;
+const left = 0;
+const center = 1;
 const right = 2;
 
 export class Func029 implements IFuncOrigin {
