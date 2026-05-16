@@ -59,5 +59,8 @@ typings/
 # dotenv environment variables file
 .env
 
+# Local deploy script
+deploy.ps1
+
 # next.js build output
 .next
