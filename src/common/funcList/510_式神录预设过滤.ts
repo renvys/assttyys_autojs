@@ -198,7 +198,7 @@ export class Func510 implements IFuncOrigin {
 				[center, 1280, 720, 423, 407, 446, 430, 1000],
 				[center, 1280, 720, 430, 492, 543, 533, 1000],
 			]
-		},];
+		}];
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
 		const thisConf = thisScript.scheme.config['510'];
 		if (thisScript.oper({
@@ -246,6 +246,11 @@ export class Func510 implements IFuncOrigin {
 							tureGroupNum = Number(thisConf.groupNum) - 1
 						} else {
 							tureGroupNum = Number(thisScript.global.preset_once_groupNum) - 1
+						}
+						if (tureGroupNum < 0) {
+							thisScript.myToast('预设参数为0,跳过');
+							thisScript.global.change_shikigami_state = 'finish';
+							return false;
 						}
 						const oper = [[
 							thisOperator[7].oper[0][0],

@@ -987,11 +987,24 @@ const multiFindColors: IMultiFindColorsOrigin = {
 				1280, 720,
 				[
 					[center, 370, 522, 0xa6917d],
-					[left, 148, 374, 0xbc2925],
-					[left, 167, 394, 0xb4302b],
 					[left, 176, 440, 0xec3b46],
 					[center, 387, 438, 0xffbe30],
 					[center, 387, 443, 0xffc130],
+				]
+			]
+		]
+	},
+	'悬赏_已接受协作': {
+		region: [center, 1280, 720, 144, 398, 1155, 599],
+		desc: [
+			[
+				1280, 720,
+				[
+					[center, 370, 522, 0xa6917d],
+					[center, 412, 368, 0xbd7d21],
+					[center, 412, 398, 0xaf762a],
+					[left, 172, 539, 0xa28b78],
+					[center, 409, 134, 0xf62626],
 				]
 			]
 		]
@@ -1674,13 +1687,14 @@ const multiFindColors: IMultiFindColorsOrigin = {
 			[
 				1280, 720,
 				[
-					[center, 990, 163, 0xf7d9a0],
-					[center, 589, 155, 0xe3dbd3],
-					[center, 688, 155, 0xe3dbd3],
-					[center, 834, 155, 0xe3dbd3],
-					[center, 854, 155, 0xe3bb70],
-					[center, 908, 155, 0xe3ba70],
-					[center, 960, 155, 0xe3ba70],
+					[center, 990, 163, 0xf8dda1],
+					[center, 589, 155, 0xe3dcd4],
+					[center, 688, 155, 0xe3dcd4],
+					[center, 834, 155, 0xe3dcd4],
+					[right, 989, 164, 0xf8e3b0],
+					[right, 961, 163, 0x432e26],
+					[right, 918, 161, 0x846033],
+					[right, 860, 162, 0xdfc497],
 				]
 			]
 		]
@@ -3022,6 +3036,20 @@ const multiFindColors: IMultiFindColorsOrigin = {
 				[left, 227, 368, 0x8f3138],
 				[left, 203, 349, 0xf0eee0],
 				[left, 213, 353, 0xebe6da],
+			]
+		]],
+	},
+	'大神_福利中心': {
+		region: [left, 1280, 720, 0, 0, 1280, 720],
+		desc: [[
+			1280, 720,
+			[
+				[center, 450, 97, 0x0e99b7],
+				[center, 562, 98, 0x52b3c8],
+				[center, 557, 131, 0x7ec4d4],
+				[center, 452, 134, 0x45aec5],
+				[center, 455, 124, 0xffffff],
+				[center, 490, 119, 0xffffff],
 			]
 		]],
 	},
