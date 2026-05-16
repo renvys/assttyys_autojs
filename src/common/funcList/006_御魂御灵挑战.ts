@@ -49,12 +49,12 @@ export class Func006 implements IFuncOrigin {
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
 		const thisconf = thisScript.scheme.config['6'];
 		let curCnt = 0;
-		const maxCount = 3;
+		const maxCount = 5;
 		while (thisScript.oper({
 			id: 6,
 			name: '御魂/御灵挑战',
 			operator: [thisOperator[0], thisOperator[1]]
-		}, 0)) {
+		})) {
 			curCnt++;
 			thisScript.keepScreen(false);
 			if (curCnt >= maxCount) {
