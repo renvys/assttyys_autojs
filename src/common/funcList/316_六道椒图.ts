@@ -551,9 +551,9 @@ export class Func316 implements IFuncOrigin {
 		})) {
 			if (thisScript.global.d6RouFeng < 5) {//  柔风达标前选buff
 				for (let i = 0; i < 3; i++) {
-					const temp = thisScript.findText('风', 0, thisOperator[32].oper[i], '包含');
+					const temp = thisScript.findText('风', 0, thisOperator[33].oper[i], '包含');
 					if (temp.length > 0) {
-						thisScript.regionClick([thisOperator[32].oper[i + 3]]);
+						thisScript.regionClick([thisOperator[33].oper[i + 3]]);
 						thisScript.global.d6RouFeng++;
 						log('当前柔风数量:' + thisScript.global.d6RouFeng);
 						return true;
