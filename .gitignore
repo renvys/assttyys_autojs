@@ -1,5 +1,12 @@
 # Build
 dist
+assttyys_ng.zip
+
+# Local IDE / agent files
+.idea/
+.claude/
+AGENTS.md
+CLAUDE.md
 
 # Logs
 logs
