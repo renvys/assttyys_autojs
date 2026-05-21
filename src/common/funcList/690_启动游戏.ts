@@ -43,7 +43,7 @@ export class Func690 implements IFuncOrigin {
 			default: '式神寄养',
 		}, {
 			name: 'close_game_new',
-			desc: '长时间未识别时重启游戏',
+			desc: '长时间未识别时重启游戏(30秒)',
 			type: 'switch',
 			default: true,
 		}, {
@@ -155,11 +155,10 @@ export class Func690 implements IFuncOrigin {
 	}, { // 9 用户中心
 		desc: [1280, 720,
 			[
-				[right, 1225, 255, 0xd0c3ac],
-				[right, 1229, 245, 0xc8bca4],
-				[right, 1227, 233, 0x816c56],
-				[right, 1238, 240, 0x806c5a],
-				[right, 1222, 246, 0xc6bda8],
+				[right, 1232, 230, 0x846c5f],
+				[right, 1237, 237, 0x846a5b],
+				[right, 1230, 243, 0xd2c4b0],
+				[right, 1225, 250, 0xcabcac],
 			]
 		],
 		oper: [
@@ -598,9 +597,9 @@ export class Func690 implements IFuncOrigin {
 			})) {
 				thisScript.global.timestamp = new Date().getTime();
 			}
-			// 10秒钟未执行过任何操作，杀应用重启
+			// 30秒钟未执行过任何操作，杀应用重启
 			if (thisScript.global.app_is_open_flag &&
-				new Date().getTime() - Math.max(thisScript.global.timestamp, lastFuncDateTime?.getTime() || 0, currentDate?.getTime() || 0, runDate?.getTime() || 0) > 10000
+				new Date().getTime() - Math.max(thisScript.global.timestamp, lastFuncDateTime?.getTime() || 0, currentDate?.getTime() || 0, runDate?.getTime() || 0) > 30000
 			) {
 				thisScript.stopRelatedApp();
 				sleep(2000);

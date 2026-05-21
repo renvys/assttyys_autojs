@@ -35,6 +35,11 @@ export class Func609 implements IFuncOrigin {
 			type: 'switch',
 			default: false,
 		}, {
+			name: 'shouLieZhan',
+			desc: '狩猎战(开启后寮三十只打二十次)',
+			type: 'switch',
+			default: false,
+		}, {
 			name: 'agency',
 			desc: '一键代办',
 			type: 'switch',
@@ -83,10 +88,10 @@ export class Func609 implements IFuncOrigin {
 	operator: IFuncOperatorOrigin[] = [{ // 0 用户中心
 		desc: [1280, 720,
 			[
-				[right, 1225, 255, 0xd0c3ac],
-				[right, 1229, 245, 0xc8bca4],
-				[right, 1227, 233, 0x816c56],
-				[right, 1238, 240, 0x806c5a],
+				[right, 1232, 230, 0x846c5f],
+				[right, 1237, 237, 0x846a5b],
+				[right, 1230, 243, 0xd2c4b0],
+				[right, 1225, 250, 0xcabcac],
 			]
 		],
 		oper: [
@@ -908,7 +913,7 @@ export class Func609 implements IFuncOrigin {
 			]
 		],
 		oper: [
-			[center, 1280, 720, 30, 44, 65, 74, 1000],
+			[center, 1280, 720, 30, 44, 65, 74, 3000],
 		]
 	}, { // 63 代办_红字(已完成)
 		desc: [1280, 720,
@@ -1412,6 +1417,96 @@ export class Func609 implements IFuncOrigin {
 			[center, 1280, 720, 431, 424, 551, 466, 3000],
 			[center, 1280, 720, 1148, 82, 1192, 113, 1000],
 		]
+	}, { // 99 被封禁
+		desc: [1280, 720,
+			[
+				[center, 426, 224, 0x6c4938],
+				[right, 859, 224, 0x684735],
+				[right, 850, 494, 0x624232],
+				[center, 419, 495, 0x664535],
+				[center, 447, 434, 0xdf6851],
+				[right, 685, 431, 0xf3b25e],
+				[center, 621, 313, 0xcbb59c],
+			]
+		],
+	}, { // 100 是否为登录页
+		desc: [1280, 720,
+			[
+				[center, 704, 602, 0xffffff],
+				[center, 713, 611, 0xffffff],
+				[center, 623, 597, 0xfffefe],
+				[center, 630, 601, 0xfdfdfd],
+				[center, 590, 611, 0xffffff],
+				[center, 588, 592, 0xfefdfd],
+				[left, 86, 53, 0xfdfddb],
+				[left, 88, 182, 0xfbdfae],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 562, 574, 722, 617, 1200], // 点击开始游戏
+		],
+	}, { // 101 庭院未打开菜单
+		desc: '页面是否为庭院_菜单未展开_只支持默认庭院皮肤与默认装饰',
+		oper: [
+			[right, 1280, 720, 1168, 592, 1230, 690, 1200]
+		]
+	}, { // 102 麒麟界面_未挑战
+		desc: [1280, 720,
+			[
+				[left, 112, 594, 0x664b30],
+				[left, 139, 590, 0x5b452c],
+				[left, 175, 603, 0x966f47],
+				[right, 1178, 593, 0xe5dac3],
+				[right, 1178, 657, 0xe0d5be],
+				[right, 1187, 626, 0x482d20],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 1139, 584, 1228, 666, 1000],
+		]
+	}, { // 103 狩猎战_已挑战
+		desc: [1280, 720,
+			[
+				[left, 112, 594, 0x664b30],
+				[left, 139, 590, 0x5b452c],
+				[left, 175, 603, 0x966f47],
+				[right, 1178, 587, 0xdadada],
+				[right, 1175, 662, 0xd5d5d5],
+				[right, 1148, 627, 0xd3d3d3],
+				[right, 1193, 610, 0xd7d7d7],
+				[right, 1147, 675, 0x292929],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 18, 19, 64, 56, 1000],
+		]
+	}, { // 104 判断是否为寮首页
+		desc: [
+			1280, 720,
+			[
+				[right, 1096, 630, 0xb1251f],
+				[right, 1105, 662, 0xdbe3f1],
+				[left, 45, 39, 0xf4e4a3],
+				[center, 886, 644, 0xe0cbaa],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 868, 627, 927, 684, 1200]	// 点击下方神社
+		],
+		retest: 1000
+	}, { // 105 进入_狩猎战
+		desc: [1280, 720,
+			[
+				[left, 242, 487, 0xf99184],
+				[left, 262, 487, 0xf9ad9b],
+				[left, 287, 486, 0xfcfaf7],
+				[left, 288, 510, 0xbe6c77],
+				[left, 237, 515, 0xcf838e],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 203, 449, 343, 554, 1000],
+		]
 	},
 	];
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
@@ -1436,10 +1531,24 @@ export class Func609 implements IFuncOrigin {
 				'buy_Petal': thisconf.buy_Petal as boolean,
 				'add_Petal': thisconf.add_Petal as boolean,
 				'xuanShang': thisconf.xuanShang as boolean,
+				'shouLieZhan': thisconf.shouLieZhan as boolean,
 			};
 		}
 		if (thisconf.card === '关闭') {
 			thisScript.global.function_Switch.card = false;
+		}
+		if (thisScript.oper({
+			id: 609,
+			name: '被封禁',
+			operator: [thisOperator[99]]
+		})) {
+			thisScript.stopRelatedApp();
+			sleep(2000);
+			thisScript.launchRelatedApp();
+			thisScript.global.valid_account_num = thisScript.global.valid_account_num + 1;
+			thisScript.global.account_num += 1;
+			thisScript.global.function_Switch.login = true;
+			return true
 		}
 		if (thisScript.oper({
 			id: 609,
@@ -1547,9 +1656,22 @@ export class Func609 implements IFuncOrigin {
 				if (curCnt >= maxCount) {
 					sleep(500);
 					thisScript.global.account_state = 'function';
-					thisScript.global.open_only_once = true;
 					return true;
 				}
+			}
+			const point = thisScript.findMultiColor('皮肤广告关闭按钮');
+			if (point) {
+				console.log('识别广告关闭按钮成功');
+				const oper = [[point.x - 10, point.y - 10, point.x, point.y, 1000]];
+				thisScript.regionClick(oper);
+				return true;
+			}
+			if (thisScript.oper({
+				id: 609,
+				name: '点击登录',
+				operator: [thisOperator[100], thisOperator[101]]
+			})) {
+				return true
 			}
 		}
 		if (thisScript.global.account_state === 'function') {
@@ -1586,6 +1708,24 @@ export class Func609 implements IFuncOrigin {
 					return true;
 				}
 			}
+			if (thisScript.global.function_Switch.shouLieZhan) {
+				if (!([1, 2, 3, 4].includes(new Date().getDay()) && new Date().getHours() >= 6 && new Date().getHours() < 23)) {
+					thisScript.global.function_Switch.shouLieZhan = false;
+				}
+				if (thisScript.oper({
+					name: '麒麟界面_未挑战',
+					operator: [thisOperator[102], thisOperator[7], thisOperator[104], thisOperator[105]]
+				})) {
+					return true;
+				}
+				if (thisScript.oper({
+					name: '狩猎战_已挑战',
+					operator: [thisOperator[103]]
+				})) {
+					thisScript.global.function_Switch.shouLieZhan = false;
+					return true;
+				}
+			}
 			if (thisScript.global.function_Switch.liaoSanshi) {
 				if (thisScript.global.function_Switch.liaoSanshi_tongXinDui_check) {
 					if (thisScript.oper({
@@ -1616,7 +1756,11 @@ export class Func609 implements IFuncOrigin {
 					}
 				}
 				if (thisScript.global.function_Switch.liaoSanshi_tongXinDui_fight) {
-					if (thisScript.runTimes['2'] >= 30) {
+					let timer = 30;
+					if (thisconf.shouLieZhan) {
+						timer = 20;
+					}
+					if (thisScript.runTimes['2'] >= timer) {
 						thisScript.myToast('已完成三十次组队,跳转预存体力');
 						thisScript.global.function_Switch.liaoSanshi_tongXinDui_fight = false;
 						thisScript.global.function_Switch.liaoSanshi_tongXinDui_yuCun = true;
@@ -2062,7 +2206,6 @@ export class Func609 implements IFuncOrigin {
 				thisScript.global.function_Switch = null;
 				thisScript.global.account_state = 'login';
 				thisScript.runTimes['2'] = 0;
-				thisScript.global.open_only_once = false;
 				return true;
 			}
 		}

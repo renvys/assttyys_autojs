@@ -602,6 +602,29 @@ const SchemeList: IScheme[] = [
 		}
 	},
 	{
+		id: 111,
+		schemeName: '循环_探索单人',
+		star: true,
+		list: [690, 509, 510, 50, 0, 1, 2, 3, 14, 29, 503],
+		groupNames: ['循环任务'],
+		config: {
+			'0': {
+				jspd_enabled_2: true,
+				jspd_times_2: '80',
+				after_operation: '切换方案',
+				next_scheme: '突破打9退4'
+			},
+			'50': {
+				buff_type: '经验',
+				ready_once_buff: true
+			},
+			'503': {
+				'oper_26': false,
+				'oper_27': false
+			},
+		}
+	},
+	{
 		id: 3,
 		schemeName: '突破打9退4',
 		groupNames: ['循环任务'],
@@ -632,7 +655,7 @@ const SchemeList: IScheme[] = [
 		id: 111,
 		schemeName: '僵尸寮日常任务',
 		star: true,
-		list: [0, 1, 2, 3, 24, 609, 690, 503],
+		list: [0, 1, 2, 3, 24, 609, 503],
 		groupNames: ['小号部分'],
 		config: {
 			'0': {
@@ -756,7 +779,7 @@ const SchemeList: IScheme[] = [
 		id: 79,
 		schemeName: '师徒_徒弟守护',
 		groupNames: ['师徒部分'],
-		list: [690, 0, 1, 2, 3, 306, 5, 692, 29, 503],
+		list: [0, 1, 2, 3, 306, 692, 29],
 		config: {
 			'692': {
 				next_scheme: '__关闭应用__'

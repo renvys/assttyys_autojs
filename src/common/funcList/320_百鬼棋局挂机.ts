@@ -8,7 +8,7 @@ const right = 2;
 export class Func320 implements IFuncOrigin {
 	id = 320;
 	name = '百鬼棋局挂机';
-	desc = '';
+	desc = '自行配置一套阵容置顶';
 	config = [{
 		desc: '配置',
 		config: [{
@@ -43,15 +43,15 @@ export class Func320 implements IFuncOrigin {
 	}, { // 5 百鬼棋局
 		desc: [1280, 720,
 			[
-				[left, 189, 159, 0xfffbc6],
-				[left, 240, 266, 0xfff7ba],
-				[center, 325, 162, 0x344a31],
-				[center, 323, 311, 0x3f986a],
-				[center, 340, 224, 0x295d39],
+				[left, 193, 255, 0xf5d54d],
+				[left, 155, 249, 0xe9ca4e],
+				[left, 162, 234, 0xe6c44d],
+				[left, 236, 215, 0xdfc145],
+				[left, 260, 218, 0xe6c34a],
 			]
 		],
 		oper: [
-			[center, 1280, 720, 177, 172, 251, 243, 1000],
+			[center, 1280, 720, 154, 219, 287, 267, 1000],
 		]
 	}, { //  6 百鬼棋局 战
 		desc: [1280, 720,
@@ -109,27 +109,29 @@ export class Func320 implements IFuncOrigin {
 	}, { // 10 返回大厅
 		desc: [1280, 720,
 			[
-				[center, 569, 636, 0xffc879],
-				[center, 573, 656, 0xfdc36e],
-				[right, 717, 635, 0xffcd83],
-				[right, 712, 662, 0xffdfaf],
-				[right, 699, 650, 0xffdfab],
+				[center, 571, 603, 0xffc774],
+				[center, 569, 626, 0xfcc068],
+				[right, 708, 603, 0xffcf84],
+				[right, 711, 631, 0xffe3bc],
+				[center, 637, 631, 0xffdca6],
+				[center, 638, 600, 0xffd089],
 			]
 		],
 		oper: [
-			[center, 1280, 720, 568, 634, 716, 666, 1000],
+			[center, 1280, 720, 564, 600, 719, 633, 1000],
 		]
 	}, { // 11 阵容
 		desc: [1280, 720,
 			[
-				[left, 235, 18, 0xdbb88f],
-				[left, 236, 29, 0xd6b68c],
-				[left, 236, 45, 0xdbb98f],
-				[center, 488, 23, 0x31241a],
+				[left, 226, 18, 0xddb68c],
+				[left, 225, 31, 0xdeb68c],
+				[left, 225, 45, 0xdeb38c],
+				[left, 300, 46, 0xd6b28c],
+				[left, 285, 24, 0xd6ae84],
 			]
 		],
 		oper: [
-			[center, 1280, 720, 287, 20, 316, 49, 1000],
+			[center, 1280, 720, 269, 15, 308, 51, 1000],
 		]
 	}, { // 12 应用
 		desc: [1280, 720,
@@ -262,7 +264,7 @@ export class Func320 implements IFuncOrigin {
 			]
 		],
 		oper: [
-			[center, 1280, 720, 903, 634, 927, 656, 1000],
+			[center, 1280, 720, 906, 686, 928, 707, 1000],
 		]
 	}, { // 23  发现御魂
 		desc: [1280, 720,
@@ -317,6 +319,19 @@ export class Func320 implements IFuncOrigin {
 		oper: [
 			[center, 1280, 720, 1203, 39, 1249, 70, 1000],
 		]
+	}, { // 27 返回大厅
+		desc: [1280, 720,
+			[
+				[center, 403, 603, 0xffc774],
+				[center, 544, 625, 0xffdcac],
+				[right, 736, 608, 0xffc773],
+				[right, 879, 629, 0xffe0b5],
+				[center, 550, 610, 0xffcc86],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 396, 605, 555, 629, 1000],
+		]
 	},
 	];
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
@@ -349,7 +364,7 @@ export class Func320 implements IFuncOrigin {
 		if (thisScript.oper({
 			name: '杂项',
 			operator: [thisOperator[4], thisOperator[5], thisOperator[15], thisOperator[8], thisOperator[9]
-				, thisOperator[10], thisOperator[24], thisOperator[25], thisOperator[26]]
+				, thisOperator[10], thisOperator[24], thisOperator[25], thisOperator[26], thisOperator[27]]
 		})) {
 			return true;
 		}

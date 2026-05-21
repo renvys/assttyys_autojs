@@ -44,7 +44,7 @@ export class Func313 implements IFuncOrigin {
 	operator: IFuncOperatorOrigin[] = [{ // 0 探索地图进入契灵之境
 		desc: '探索地图界面',
 		oper: [
-			[center, 1280, 720, 940, 648, 996, 683, 3000],
+			[center, 1280, 720, 1024, 642, 1071, 680, 3000],
 		]
 	}, { // 1 探索地图界面_含时空秘境进入契灵之境 废弃
 		oper: [
@@ -131,12 +131,12 @@ export class Func313 implements IFuncOrigin {
 		desc: [
 			1280, 720,
 			[
-				[center, 740, 52, 0x644c27],
-				[center, 817, 59, 0x432b13],
-				[center, 743, 240, 0x644c27],
-				[center, 812, 245, 0x472e14],
-				[center, 740, 385, 0x644c27],
-				[center, 816, 392, 0x452c14],
+				[right, 740, 52, 0x654c27],
+				[right, 834, 61, 0x3e2810],
+				[right, 889, 64, 0x372410],
+				[right, 927, 60, 0x342210],
+				[right, 835, 72, 0x422c10],
+				[right, 906, 73, 0x442d15],
 			]
 		],
 		oper: [
