@@ -530,9 +530,9 @@ const multiDetectColors: IMultiDetectColorsOrigin = {
 			[
 				[left, 36, 36, 0xf7e3a5],
 				[left, 117, 26, 0xf7efb5],
-				[right, 1173, 37, 0xd6b289],
-				[right, 1253, 128, 0xd6b28c],
-				[right, 1243, 160, 0x4f3b30],
+				[right, 1164, 25, 0xd6b289],
+				[right, 1223, 23, 0xd6ad86],
+				[center, 508, 35, 0x731c10],
 			]
 		]
 	},
@@ -552,10 +552,10 @@ const multiDetectColors: IMultiDetectColorsOrigin = {
 		desc: [
 			1280, 720,
 			[
-				[right, 1226, 47, 0xcda47a],
 				[right, 1228, 646, 0xd6c6c3],
 				[center, 366, 56, 0xf9cf9a],
-				[right, 1154, 40, 0xd7b288],
+				[right, 1154, 28, 0xd7b289],
+				[right, 1220, 25, 0xd3ae84],
 			]
 		],
 	},
@@ -563,7 +563,7 @@ const multiDetectColors: IMultiDetectColorsOrigin = {
 		desc: [1280, 720,
 			[
 				[right, 1223, 662, 0xdbcbc7],
-				[right, 1155, 41, 0xd7b188],
+				[right, 1155, 41, 0xcca375],
 				[center, 451, 631, 0xe8e4e1],
 				[center, 673, 651, 0xdb8b3f],
 			],
@@ -819,6 +819,19 @@ const multiDetectColors: IMultiDetectColorsOrigin = {
 				[left, -1, -1, 0x000000],
 			]
 		]
+	},
+	'町中': {
+		desc: [
+			1280, 720,
+			[
+				[right, 1053, 441, 0x8c8888],
+				[right, 1096, 229, 0xa8a196],
+				[right, 1155, 38, 0xd7b28a],
+				[right, 1153, 27, 0xd9b489],
+				[right, 1216, 26, 0xd4ae84],
+			]
+		]
+
 	}
 };
 

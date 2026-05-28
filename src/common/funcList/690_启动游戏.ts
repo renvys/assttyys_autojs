@@ -240,8 +240,18 @@ export class Func690 implements IFuncOrigin {
 			[center, 1280, 720, 596, 415, 678, 469, 1000], // 登录
 			[center, 1280, 720, 580, 297, 703, 364, 1000], // 打开账号选择框
 		]
-	}, { // 16
-		desc: '庭院已打开菜单_另另外一种图标',
+	}, { // 16 町中界面
+		desc: [1280, 720,
+			[
+				[right, 1053, 319, 0x999694],
+				[right, 1053, 370, 0x9c9694],
+				[right, 1053, 411, 0x918f91],
+				[right, 1053, 450, 0x868284],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 1021, 244, 1089, 292, 1000],
+		]
 	}, { // 17 客户端更新窗口关闭
 		desc: [
 			1280,
@@ -464,6 +474,20 @@ export class Func690 implements IFuncOrigin {
 			[center, 1280, 720, 606, 378, 665, 434, 1000],
 			[center, 1280, 720, 441, 375, 500, 432, 1000],
 		]
+	}, { // 34 5/27 抵用卷广告
+		desc: [1280, 720,
+			[
+				[right, 734, 543, 0xbd9263],
+				[right, 839, 543, 0xc39563],
+				[right, 726, 577, 0xffe394],
+				[right, 857, 575, 0xffdf95],
+				[right, 870, 555, 0xe7b473],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 725, 542, 874, 572, 1000],
+			[center, 1280, 720, 601, 665, 745, 708, 1000],
+		]
 	},
 	];
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
@@ -577,6 +601,8 @@ export class Func690 implements IFuncOrigin {
 						break;
 					} else {
 						thisScript.global.open_only_once = true;
+						// 当503在结尾时同时停止运行他,如需运行,得在其他需要的功能里改为true
+						thisScript.global.back = false;
 						return true;
 					}
 				}
@@ -688,7 +714,7 @@ export class Func690 implements IFuncOrigin {
 					thisOperator[17], thisOperator[20], thisOperator[21], thisOperator[26],
 					thisOperator[27], {
 						desc: thisOperator[15].desc, oper: [thisOperator[15].oper[0]]
-					}, thisOperator[31], thisOperator[32],
+					}, thisOperator[31], thisOperator[32], thisOperator[34]
 				]
 			})) {
 				return true;

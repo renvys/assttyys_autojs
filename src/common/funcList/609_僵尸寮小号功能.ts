@@ -357,7 +357,6 @@ export class Func609 implements IFuncOrigin {
 				[left, 80, 381, 0xf3e2b6],
 				[left, 112, 436, 0xe7c799],
 				[left, 297, 301, 0x5f697f],
-				[right, 860, 302, 0x616a7d],
 			]
 		],
 		oper: [
@@ -1507,6 +1506,44 @@ export class Func609 implements IFuncOrigin {
 		oper: [
 			[center, 1280, 720, 203, 449, 343, 554, 1000],
 		]
+	}, { // 106 勾选一位
+		desc: [1280, 720,
+			[
+				[right, 659, 258, 0x3c2d10],
+				[right, 659, 267, 0x3c2c10],
+				[right, 654, 263, 0x3a2a0f],
+				[right, 664, 263, 0x3c2c0f],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 655, 259, 663, 267, 1000],
+		]
+	}, { // 107 一位完成
+		desc: [1280, 720,
+			[
+				[right, 658, 259, 0x4859df],
+				[right, 664, 266, 0x4456d2],
+				[center, 575, 91, 0xa32f2a],
+				[right, 917, 91, 0xe8d3cf],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 516, 481, 761, 525, 1000],
+		]
+	}, { // 108 5/27 抵用卷广告
+		desc: [1280, 720,
+			[
+				[right, 734, 543, 0xbd9263],
+				[right, 839, 543, 0xc39563],
+				[right, 726, 577, 0xffe394],
+				[right, 857, 575, 0xffdf95],
+				[right, 870, 555, 0xe7b473],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 725, 542, 874, 572, 1000],
+			[center, 1280, 720, 601, 665, 745, 708, 1000],
+		]
 	},
 	];
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
@@ -1669,7 +1706,7 @@ export class Func609 implements IFuncOrigin {
 			if (thisScript.oper({
 				id: 609,
 				name: '点击登录',
-				operator: [thisOperator[100], thisOperator[101]]
+				operator: [thisOperator[100], thisOperator[101], thisOperator[108]]
 			})) {
 				return true
 			}
@@ -1757,7 +1794,8 @@ export class Func609 implements IFuncOrigin {
 				}
 				if (thisScript.global.function_Switch.liaoSanshi_tongXinDui_fight) {
 					let timer = 30;
-					if (thisconf.shouLieZhan) {
+					if (!([1, 2, 3, 4].includes(new Date().getDay()) && new Date().getHours() >= 6 && new Date().getHours() < 23)
+						&& thisconf.shouLieZhan) {
 						timer = 20;
 					}
 					if (thisScript.runTimes['2'] >= timer) {
@@ -1828,7 +1866,8 @@ export class Func609 implements IFuncOrigin {
 					if (thisScript.oper({
 						id: 609,
 						name: '进入组队',
-						operator: [thisOperator[18], thisOperator[19], thisOperator[20], thisOperator[21]]
+						operator: [thisOperator[18], thisOperator[19], thisOperator[20], thisOperator[21]
+							, thisOperator[106], thisOperator[107]]
 					})) {
 						return true;
 					}
@@ -2177,7 +2216,7 @@ export class Func609 implements IFuncOrigin {
 				!thisScript.global.function_Switch.agency && !thisScript.global.function_Switch.regionBoos &&
 				!thisScript.global.function_Switch.card && !thisScript.global.function_Switch.qiLin_Fifty &&
 				!thisScript.global.function_Switch.yuHun_Fifty && !thisScript.global.function_Switch.buy_Petal &&
-				!thisScript.global.function_Switch.add_Petal &&
+				!thisScript.global.function_Switch.add_Petal && !thisScript.global.function_Switch.shouLieZhan &&
 				thisScript.oper({
 					id: 609,
 					name: '庭院',

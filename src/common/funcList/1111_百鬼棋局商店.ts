@@ -17,16 +17,7 @@ export class Func1111 implements IFuncOrigin {
 	}, { // 3 庭院已打开菜单，另另外一种图标
 		desc: '庭院已打开菜单_另另外一种图标',
 	}, { // 4 检测_町中
-		desc: [
-			1280, 720,
-			[
-				[right, 1053, 441, 0x8c8888],
-				[right, 1096, 229, 0xa8a196],
-				[right, 1040, 239, 0xb6b0bb],
-				[right, 1220, 48, 0xcba375],
-				[right, 1155, 38, 0xd7b28a],
-			]
-		],
+		desc: '町中',
 		oper: [
 			[center, 1280, 720, 205, 159, 235, 198, 1000],	//	点击鼬乐园灯笼
 		]
@@ -86,6 +77,19 @@ export class Func1111 implements IFuncOrigin {
 		oper: [
 			[center, 1280, 720, 1126, 79, 1161, 105, 1000],
 		]
+	}, { // 9 有活动的商店
+		desc: [1280, 720,
+			[
+				[center, 323, 635, 0xfef3b9],
+				[left, 319, 673, 0xeacd9b],
+				[center, 341, 697, 0xf7efd1],
+				[left, 302, 668, 0xedd59e],
+				[center, 341, 645, 0xfff4b9],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 305, 638, 344, 684, 1000],
+		]
 	},
 	];
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
@@ -106,7 +110,7 @@ export class Func1111 implements IFuncOrigin {
 			}
 			if (thisScript.oper({
 				name: '杂项',
-				operator: [thisOperator[4], thisOperator[5], thisOperator[6]]
+				operator: [thisOperator[4], thisOperator[5], thisOperator[6], thisOperator[9]]
 			})) {
 				return true;
 			}

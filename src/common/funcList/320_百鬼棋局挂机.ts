@@ -27,16 +27,7 @@ export class Func320 implements IFuncOrigin {
 	}, { // 3 庭院已打开菜单，另另外一种图标
 		desc: '庭院已打开菜单_另另外一种图标',
 	}, { // 4 检测_町中
-		desc: [
-			1280, 720,
-			[
-				[right, 1053, 441, 0x8c8888],
-				[right, 1096, 229, 0xa8a196],
-				[right, 1040, 239, 0xb6b0bb],
-				[right, 1220, 48, 0xcba375],
-				[right, 1155, 38, 0xd7b28a],
-			]
-		],
+		desc: '町中',
 		oper: [
 			[center, 1280, 720, 205, 159, 235, 198, 1000],	//	点击鼬乐园灯笼
 		]
@@ -332,6 +323,17 @@ export class Func320 implements IFuncOrigin {
 		oper: [
 			[center, 1280, 720, 396, 605, 555, 629, 1000],
 		]
+	}, { // 28 开活动后的600币
+		desc: [1280, 720,
+			[
+				[center, 399, 671, 0xed8d03],
+				[center, 406, 674, 0xd57e06],
+				[center, 410, 670, 0xea8a03],
+				[center, 418, 671, 0xce7a08],
+				[center, 421, 671, 0xf79201],
+				[center, 429, 671, 0xf69101],
+			]
+		],
 	},
 	];
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
@@ -350,7 +352,7 @@ export class Func320 implements IFuncOrigin {
 		})) {
 			if (thisScript.oper({
 				name: '杂项',
-				operator: [{ desc: thisOperator[19].desc }]
+				operator: [{ desc: thisOperator[28].desc }, { desc: thisOperator[19].desc }]
 			})) {
 				thisScript.rerun(thisconf.next_scheme);
 				sleep(1000);

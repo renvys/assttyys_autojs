@@ -33,8 +33,12 @@ export class Func029 implements IFuncOrigin {
 			[center, 1280, 720, 550, 130, 600, 180, 1000], // ocr识别区域1
 			[center, 1280, 720, 559, 142, 583, 175, 1000], // ocr识别后点击区域1
 		]
-	}
-	]
+	}, { // 5突破界面，关闭突破界面
+		desc: '突破界面',
+		oper: [
+			[center, 1280, 720, 1187, 112, 1228, 150, 1000],
+		]
+	}]
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
 		if (thisScript.oper({
 			name: '庭院判断',
@@ -63,6 +67,12 @@ export class Func029 implements IFuncOrigin {
 				}
 				return false
 			}
+		}
+		if (thisScript.oper({
+			name: '突破界面',
+			operator: [thisOperator[5]]
+		})) {
+			return true;
 		}
 		return false;
 	}

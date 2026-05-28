@@ -10,6 +10,7 @@ export type globalRootType = {
 	runningTime: number,
 	pauseTime: number,
 	notifyTime: number,
+	back: boolean, // 返回庭院的开关,true为开启,false为关闭.默认为:true(开启)
 	tp_swipe_times: number,
 	tsAttackSwhipeNum: number,
 	dgCurNum: number,
@@ -148,6 +149,7 @@ export type globalRootType = {
 	chessShopNum: number, // 下棋商店购买次数
 	miWenChange: boolean, // 秘闻是否更换过式神
 	shaoTiao: boolean, // 烧条
+	miWenClearTimer: number, // 秘闻挑战清理状态次数
 }
 
 export const globalRoot: globalRootType = {
@@ -300,6 +302,8 @@ export const globalRoot: globalRootType = {
 	chessShopNum: 0,
 	miWenChange: false,
 	shaoTiao: false,
+	miWenClearTimer: 0,
+	back: true,
 }
 export type superGlobalRootType = {
 	liao_activity_Switch: Record<string, boolean>, // 寮活动记录
