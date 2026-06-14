@@ -889,9 +889,7 @@ export class Func503 implements IFuncOrigin {
 				}
 				if (thisScript.oper({
 					name: '庭院界面',
-					operator: [{
-						desc: thisOperator[12].desc
-					}]
+					operator: [{ desc: thisOperator[12].desc }, { desc: '茨球庭院-町中定位' }]
 				})) {
 					// 返回方案起始点,并重置起始点?必要性存疑
 					let next_scheme = thisScript.runtimeParams && thisScript.runtimeParams.next_scheme_name;

@@ -831,7 +831,17 @@ const multiDetectColors: IMultiDetectColorsOrigin = {
 				[right, 1216, 26, 0xd4ae84],
 			]
 		]
-
+	},
+	'茨球庭院-町中定位': {
+		desc: [1280, 720,
+			[
+				[right, 853, 341, 0x6f5c44],
+				[right, 853, 347, 0x6d5b43],
+				[right, 849, 359, 0x6f5c44],
+				[right, 853, 359, 0x6e5c44],
+				[right, 849, 364, 0x6f5c44],
+			]
+		],
 	}
 };
 

@@ -31,7 +31,8 @@ export class Func029 implements IFuncOrigin {
 		],
 		oper: [
 			[center, 1280, 720, 550, 130, 600, 180, 1000], // ocr识别区域1
-			[center, 1280, 720, 559, 142, 583, 175, 1000], // ocr识别后点击区域1
+			[center, 1280, 720, 559, 142, 583, 175, 1000], // 龙珏庭院ocr识别后点击区域
+			[center, 1280, 720, 592, 195, 621, 221, 1000], // 茨球庭院ocr识别后点击区域
 		]
 	}, { // 5突破界面，关闭突破界面
 		desc: '突破界面',
@@ -59,14 +60,22 @@ export class Func029 implements IFuncOrigin {
 				];
 				thisScript.regionClick(oper);
 				return true;
-			} else {
-				const temp = thisScript.findText('探', 0, thisOperator[4].oper[0], '包含');
-				if (temp.length > 0) {
-					thisScript.regionClick([thisOperator[4].oper[1]]);
-					return true;
-				}
-				return false
 			}
+			// 龙珏庭院
+			const temp = thisScript.findText('探', 0, thisOperator[4].oper[0], '包含');
+			if (temp.length > 0) {
+				thisScript.regionClick([thisOperator[4].oper[1]]);
+				return true;
+			}
+			// 茨球庭院
+			if (thisScript.oper({
+				name: '茨球庭院识别',
+				operator: [{ desc: '茨球庭院-町中定位' }]
+			})) {
+				thisScript.regionClick([thisOperator[4].oper[2]]);
+				return true;
+			}
+			return false;
 		}
 		if (thisScript.oper({
 			name: '突破界面',
