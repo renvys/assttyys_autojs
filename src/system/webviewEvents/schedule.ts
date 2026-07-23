@@ -4,6 +4,34 @@ import store from '@/system/Store/store';
 import ScheduleDefaultList from '@/common/scheduleList';
 import schedule, { Job, JobOptions, mergeOffsetTime } from '@/system/Schedule'
 import { getNextByCron } from '@/common/toolCron';
+
+/**
+ * 用代码中的默认任务补齐已保存列表，同时保留用户修改过的完整任务配置。
+ * 任务名不在默认列表中的自定义任务也必须保留。
+ */
+function mergeScheduleListWithDefaults(savedJobs: JobOptions[]): JobOptions[] {
+	const jobs = Array.isArray(savedJobs) ? savedJobs : [];
+	const defaultJobNames = ScheduleDefaultList.map(job => job.name);
+	const mergedDefaultJobs = ScheduleDefaultList.map(defaultJob => {
+		const savedJob = jobs.find(job => job.name === defaultJob.name);
+		if (!savedJob) {
+			return { ...defaultJob, config: { ...defaultJob.config } };
+		}
+		return {
+			...defaultJob,
+			...savedJob,
+			config: {
+				...defaultJob.config,
+				...savedJob.config,
+			},
+		};
+	});
+	const customJobs = jobs
+		.filter(job => !defaultJobNames.includes(job.name))
+		.map(job => ({ ...job, config: { ...job.config } }));
+
+	return [...mergedDefaultJobs, ...customJobs];
+}
 // // import schedule from 'node-schedule';
 
 // const emt = events.emitter()
@@ -52,7 +80,7 @@ export default function webviewSchedule() {
 			jobToSchedule(item);
 		}
 	});
-	store.put('scheduleList', savedScheduleList);
+	persistScheduleList(savedScheduleList);
 
 
 	// 返回所有任务列表（所有方案都显示全部任务）
@@ -60,20 +88,12 @@ export default function webviewSchedule() {
 		const currentConfigName = store.get('currentScheduleConfigName');
 		const configs = store.get('scheduleConfigs') || {};
 
-		// 如果有当前配置，合并 checked 状态
+		// 当前配置优先；没有选择配置时使用最后一次保存的任务列表
 		if (currentConfigName && configs[currentConfigName]) {
-			const configJobs = configs[currentConfigName];
-			const allJobs = ScheduleDefaultList.map(defaultJob => {
-				const configJob = configJobs.find((j: JobOptions) => j.name === defaultJob.name);
-				if (configJob) {
-					return { ...defaultJob, checked: configJob.checked };
-				}
-				return { ...defaultJob, checked: false };
-			});
-			done(allJobs);
+			done(mergeScheduleListWithDefaults(configs[currentConfigName]));
 		} else {
-			// 无配置时返回默认列表（全部未启用）
-			done(ScheduleDefaultList.map(j => ({ ...j, checked: false })));
+			const savedJobs = store.get('scheduleList', ScheduleDefaultList);
+			done(mergeScheduleListWithDefaults(savedJobs));
 		}
 	});
 
@@ -89,7 +109,7 @@ export default function webviewSchedule() {
 		// console.log('scheduleList已保存');
 		// done('success');
 
-		store.put('scheduleList', scheduleList);
+		persistScheduleList(scheduleList);
 		done({ error: 0, message: 'success' });
 	});
 
@@ -158,35 +178,35 @@ export default function webviewSchedule() {
 		}
 
 		function updateJobStore(job: JobOptions) {
-			// 更新 scheduleList
 			const sl = store.get('scheduleList', ScheduleDefaultList);
 			for (const storedJob of sl) {
 				if (storedJob.name === job.name) {
 					storedJob.nextDate = job.nextDate;
 					storedJob.lastRunTime = job.lastRunTime;
 					storedJob.lastStopTime = job.lastStopTime;
-					store.put('scheduleList', sl);
 					break;
 				}
 			}
-
-			// 同时更新当前配置中的任务
-			const currentConfigName = store.get('currentScheduleConfigName');
-			if (currentConfigName) {
-				const configs = store.get('scheduleConfigs') || {};
-				if (configs[currentConfigName]) {
-					for (const configJob of configs[currentConfigName]) {
-						if (configJob.name === job.name) {
-							configJob.nextDate = job.nextDate;
-							configJob.lastRunTime = job.lastRunTime;
-							configJob.lastStopTime = job.lastStopTime;
-							store.put('scheduleConfigs', configs);
-							break;
-						}
-					}
-				}
-			}
+			persistScheduleList(sl);
 		}
+	}
+
+	/**
+	 * 保存当前任务列表，并同步当前选中的配置。
+	 * scheduleList 是运行态数据，scheduleConfigs 是配置管理数据，两者必须保持一致。
+	 */
+	function persistScheduleList(scheduleList: JobOptions[]) {
+		store.put('scheduleList', scheduleList);
+
+		const currentConfigName = store.get('currentScheduleConfigName');
+		if (!currentConfigName) return;
+
+		const configs = store.get('scheduleConfigs') || {};
+		// 当前配置可能已经被删除，避免一次普通保存将它意外恢复
+		if (!configs[currentConfigName]) return;
+
+		configs[currentConfigName] = scheduleList;
+		store.put('scheduleConfigs', configs);
 	}
 
 	// const jobList = [];
@@ -228,7 +248,7 @@ export default function webviewSchedule() {
 		// 如果没有"默认配置"，自动创建
 		const DEFAULT_CONFIG_NAME = '默认配置';
 		if (!configs[DEFAULT_CONFIG_NAME]) {
-			const currentJobs = store.get('scheduleList') || [];
+			const currentJobs = mergeScheduleListWithDefaults(store.get('scheduleList') || []);
 			configs[DEFAULT_CONFIG_NAME] = currentJobs;
 			store.put('scheduleConfigs', configs);
 		}
@@ -238,11 +258,12 @@ export default function webviewSchedule() {
 	// 加载指定配置到调度器
 	webview.on('loadScheduleConfig').subscribe(([name, done]) => {
 		const configs = store.get('scheduleConfigs') || {};
-		const jobs = configs[name];
-		if (!jobs) {
+		const configJobs = configs[name];
+		if (!configJobs) {
 			done({ error: 1, message: '配置不存在' });
 			return;
 		}
+		const jobs = mergeScheduleListWithDefaults(configJobs);
 		// 清空调度器中的所有现有任务（先复制任务名列表，避免遍历中修改数组）
 		const currentJobList = schedule.getJobList();
 		const jobNames = currentJobList.map(job => job.name);
@@ -264,7 +285,7 @@ export default function webviewSchedule() {
 		}
 		// 保存当前配置名称和任务列表
 		store.put('currentScheduleConfigName', name);
-		store.put('scheduleList', jobs);
+		persistScheduleList(jobs);
 
 		done({ error: 0, message: 'success', data: jobs });
 	});
@@ -273,8 +294,12 @@ export default function webviewSchedule() {
 	webview.on('saveScheduleConfig').subscribe(([params, done]) => {
 		const { name, jobs } = params;
 		const configs = store.get('scheduleConfigs') || {};
-		configs[name] = jobs;
+		const mergedJobs = mergeScheduleListWithDefaults(jobs);
+		configs[name] = mergedJobs;
 		store.put('scheduleConfigs', configs);
+		if (store.get('currentScheduleConfigName') === name) {
+			store.put('scheduleList', mergedJobs);
+		}
 		done({ error: 0, message: 'success' });
 	});
 
