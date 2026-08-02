@@ -1,6 +1,6 @@
 "ui";
 
-var RELEASE_API_URL = 'https://gitee.com/api/v5/repos/Renvy/assttyys_autojs/releases/latest';
+var RELEASE_PAGE_URL = 'https://gitee.com/Renvy/assttyys_autojs/releases/latest?force_mobile=true';
 var UPDATE_ASSET_NAME = 'assttyys_ng.zip';
 var FALLBACK_UPDATE_URL = 'https://assttyys.renvy.top/assttyys_ng.zip';
 var USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36 Edg/91.0.864.59';
@@ -133,6 +133,17 @@ function closeResponse(response) {
     }
 }
 
+function toAbsoluteGiteeUrl(url) {
+    var absoluteUrl = String(url || '');
+    if (absoluteUrl.indexOf('//') === 0) {
+        return 'https:' + absoluteUrl;
+    }
+    if (absoluteUrl.indexOf('/') === 0) {
+        return 'https://gitee.com' + absoluteUrl;
+    }
+    return absoluteUrl;
+}
+
 function recoverInterruptedUpdate() {
     var localAvailable = isLocalProgramAvailable();
     var backupAvailable = files.isFile(backupEntryPath);
@@ -208,39 +219,45 @@ function installUpdate(archiveBytes) {
 function getLatestRelease() {
     var response = null;
     try {
-        response = http.get(RELEASE_API_URL, {
-            headers: {
-                'User-Agent': USER_AGENT,
-                'Accept': 'application/json'
+        var requestHeaders = {
+            'User-Agent': USER_AGENT,
+            'Accept': 'text/html'
+        };
+        response = http.get(RELEASE_PAGE_URL, { headers: requestHeaders });
+        if (response.statusCode >= 300 && response.statusCode < 400) {
+            var redirectUrl = toAbsoluteGiteeUrl(getResponseHeader(response, 'Location'));
+            closeResponse(response);
+            response = null;
+            if (!redirectUrl) {
+                throw new Error('Gitee Release 页面重定向地址无效');
             }
-        });
+            response = http.get(redirectUrl, { headers: requestHeaders });
+        }
         if (response.statusCode !== 200) {
-            throw new Error('Gitee Release API 返回状态码 ' + response.statusCode);
+            throw new Error('Gitee Release 页面返回状态码 ' + response.statusCode);
         }
 
-        var release = JSON.parse(response.body.string());
-        if (!release || !release.created_at || !release.assets) {
-            throw new Error('Gitee Release API 返回数据无效');
+        var html = response.body.string();
+        var escapedAssetName = UPDATE_ASSET_NAME.replace(/\./g, '\\.');
+        var tagMatch = html.match(/data-tag-name=['"]([^'"]+)['"]/i);
+        var createdAtMatch = html.match(/<span[^>]*class=['"]release-time['"][^>]*>\s*([^<]+?)\s*<\/span>/i);
+        var createdAtMarkerMatch = html.match(/ASSTTYYS_CREATED_AT=([0-9T:+.\-]+)/i);
+        var legacyCreatedAtMatch = html.match(new RegExp("Automated deployment of " + escapedAssetName + " at (\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})\\.", 'i'));
+        var downloadMatch = html.match(new RegExp("href=['\"]([^'\"]*/releases/download/[^'\"]+/" + escapedAssetName + ")['\"]", 'i'));
+        if (!tagMatch || !createdAtMatch || !downloadMatch) {
+            throw new Error('Gitee Release 页面格式无法识别');
         }
 
-        var downloadUrl = '';
-        release.assets.forEach(function (asset) {
-            if (asset && asset.name === UPDATE_ASSET_NAME) {
-                downloadUrl = asset.browser_download_url || '';
-            }
-        });
-        if (!downloadUrl) {
-            throw new Error('最新 Release 缺少附件 ' + UPDATE_ASSET_NAME);
-        }
+        var downloadUrl = toAbsoluteGiteeUrl(downloadMatch[1]);
 
         return {
-            tagName: String(release.tag_name),
-            createdAt: String(release.created_at),
+            tagName: String(tagMatch[1]),
+            createdAt: String(createdAtMarkerMatch ? createdAtMarkerMatch[1] : (legacyCreatedAtMatch ? legacyCreatedAtMatch[1] : createdAtMatch[1])).replace(/^\s+|\s+$/g, ''),
             downloadUrl: downloadUrl
         };
     } catch (error) {
         if (error && error.message && error.message.indexOf('Gitee') === 0) throw error;
-        throw new Error('获取最新 Release 失败: ' + error);
+        throw new Error('解析最新 Release 失败: ' + error);
     } finally {
         closeResponse(response);
     }
