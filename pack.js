@@ -17,5 +17,6 @@ const fs = require('fs');
 
 zipStream.addEntry('assets', { relativePath: 'assttyys_ng' });
 zipStream.addEntry('dist/auto.js', { relativePath: 'assttyys_ng/dist/auto.js' });
+zipStream.addEntry('dist/index.html', { relativePath: 'assttyys_ng/dist/index.html' });
 zipStream.addEntry('project.json', { relativePath: 'assttyys_ng/project.json' });
 zipStream.pipe(fs.createWriteStream('assttyys_ng.zip'));

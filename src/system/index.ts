@@ -27,14 +27,15 @@ core({
 // console.log(files.cwd());
 console.log(`autojs version: ${app.autojs.versionCode}`);
 
-let url = 'https://assttyys.renvy.top/'
+const localUiPath = files.path('dist/index.html');
+let url = files.isFile(localUiPath) ? 'file://' + localUiPath : 'https://assttyys.renvy.top/';
 // 调试模式，可能存在有人用run.js运行脚本，这时就得用运行路径判断了
 // if (context.packageName.match(/^org.autojs.autojs(pro)?$/) && files.cwd().indexOf(context.getExternalFilesDir(null).getAbsolutePath()) === -1) {
 // 	url = 'file://' + files.path('dist/index.html');
 // }
 // aj彻底废了。。
 if (isDebugPlayerRunning()) {
-	url = 'file://' + files.path('dist/index.html');
+	url = 'file://' + localUiPath;
 	// url = 'https://assttyys.zzliux.cn/new/'
 }
 
@@ -85,8 +86,8 @@ export const webview = run(url, {
 		//     }
 	}
 });
-webview.webviewObject.clearCache(true);
-// webview.webviewObject.getSettings().setCacheMode(android.webkit.WebSettings.LOAD_NO_CACHE);
+// 本地界面随 Release 更新；远程回退地址优先使用 WebView 磁盘缓存。
+webview.webviewObject.getSettings().setCacheMode(android.webkit.WebSettings.LOAD_CACHE_ELSE_NETWORK);
 // webview.webviewObject.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null); // 开启硬件加速
 
 // 监听退出事件，关闭前台服务

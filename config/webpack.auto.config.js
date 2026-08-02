@@ -7,6 +7,7 @@ const Unpack = require('./devUnpack')
 const ESLintWebpackPlugin = require('eslint-webpack-plugin')
 const DevServer = require('./devServer')
 const CopyWebpackPlugin = require('copy-webpack-plugin');
+const fs = require('fs');
 
 
 const dictionary = []
@@ -25,6 +26,18 @@ const compilePlugin = new AutoProWebpackPlugin({
     //     key: ''
     // }
 })
+
+const localUiRoot = process.env.ASSTTYYS_UI_DIR
+    ? path.resolve(process.env.ASSTTYYS_UI_DIR)
+    : path.resolve(__dirname, '../../assttyys_ui');
+const localUiIndex = path.resolve(localUiRoot, 'dist/index.html');
+if (!fs.existsSync(localUiIndex)) {
+    throw new Error(
+        `[assttyys_ui] local build output not found: ${localUiIndex}. ` +
+        `Build the local UI first or set ASSTTYYS_UI_DIR to its project directory.`
+    );
+}
+console.log(`[assttyys_ui] copy from ${localUiIndex}`);
 
 const config = {
     entry: {
@@ -87,7 +100,9 @@ module.exports = (env, argv) => {
             new ProgressPlugin(),
             new CopyWebpackPlugin({
                 patterns: [
-                    { from: path.resolve(__dirname, '../node_modules/assttyys_ui/dist/index.html'), to: '.' },
+                    { from: localUiIndex, to: '.' },
+                    // Auto.js UI XML 不是标准 JS 语法，标记后由 webpack 原样复制，跳过 Terser。
+                    { from: path.resolve(__dirname, '../hotrun/main.js'), to: 'main.js', info: { minimized: true } },
                 ]
             }),
             new Unpack(),
@@ -115,7 +130,9 @@ module.exports = (env, argv) => {
             new ProgressPlugin(),
             new CopyWebpackPlugin({
                 patterns: [
-                    { from: path.resolve(__dirname, '../node_modules/assttyys_ui/dist/index.html'), to: '.' },
+                    { from: localUiIndex, to: '.' },
+                    // Auto.js UI XML 不是标准 JS 语法，标记后由 webpack 原样复制，跳过 Terser。
+                    { from: path.resolve(__dirname, '../hotrun/main.js'), to: 'main.js', info: { minimized: true } },
                 ]
             }),
         ]
