@@ -37,6 +37,7 @@ export class Script {
 	funcMap: { [key: number]: IFunc | IFuncOrigin }; // funcList的Map形式，下标为id，值为对应的fun元素
 	scheduleMap: any;  // 定时任务实例存放Map
 	multiFindColors: IMultiFindColors; // 多点找色用的，提前初始化，减轻运行中计算量
+	multiFindColorsCache: { [key: string]: IMultiFindColors }; // 按屏幕尺寸和方向缓存转换后的多点找色模板
 	multiDetectColors: IMultiDetectColors; // 多点比色用的，提前初始化，减轻运行中的计算量
 	hasRedList: boolean; // KeepScreen(true)时会初始化redList，如果没有初始化的话这个值为false，方便在有需要的时候初始化redlist且不重复初始化
 	runDate: Date; // 运行启动时间
@@ -96,6 +97,7 @@ export class Script {
 		this.funcMap = null;
 		this.scheduleMap = null;
 		this.multiFindColors = null;
+		this.multiFindColorsCache = {};
 		this.hasRedList = false;
 		this.runDate = null;
 		this.currentDate = null;
@@ -336,10 +338,22 @@ export class Script {
 	 * 根据 src\common\multiFindColors.ts 初始化多点找色数组，相关坐标根据开发分辨率自动转换成运行分辨率
 	 */
 	initMultiFindColors() {
+		const width = getWidthPixels();
+		const height = getHeightPixels();
+		const orientation = width >= height ? 'landscape' : 'portrait';
+		const cacheKey = `${width}x${height}:${orientation}`;
+		const cachedMultiFindColors = this.multiFindColorsCache[cacheKey];
+		this.device.width = width;
+		this.device.height = height;
+		if (cachedMultiFindColors) {
+			this.multiFindColors = cachedMultiFindColors;
+			return;
+		}
+
 		const thisMultiFindColor = {};
 		for (const key in multiFindColors) {
 			thisMultiFindColor[key] = {
-				region: [0, 0, this.device.width, this.device.height],
+				region: [0, 0, width, height],
 				desc: []
 			};
 			for (const desc of multiFindColors[key].desc) {
@@ -354,6 +368,7 @@ export class Script {
 				thisMultiFindColor[key].similar = multiFindColors[key].similar;
 			}
 		}
+		this.multiFindColorsCache[cacheKey] = thisMultiFindColor;
 		this.multiFindColors = thisMultiFindColor;
 	}
 
