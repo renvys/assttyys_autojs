@@ -6,63 +6,25 @@ import { getWidthPixels, getHeightPixels } from '@auto.pro/core';
 // import _ from 'lodash';
 import version, { versionList } from '@/common/version';
 import myFloaty from '@/system/MyFloaty';
-import defaultSchemeList, { GroupSchemeName, schemeNameMap } from '@/common/schemeList';
+import defaultSchemeList, {
+	createSchemeId,
+	deriveGroupSchemeNames,
+	GroupSchemeMetadata,
+	GroupSchemeName,
+	isSchemeUuid,
+	normalizeSchemeGroupNames,
+	schemeNameMap,
+	toGroupSchemeMetadata,
+} from '@/common/schemeList';
 import MyAutomator from '@/system/MyAutomator';
 import helperBridge from '@/system/helperBridge';
 import { IScheme } from '@/interface/IScheme';
 import { deepClone } from '@/common/tool';
 
 export default function webviewSchemeList() {
-	// 1. 初始化schemeList
-	let schemeList: IScheme[] = store.get('schemeList');
-	if (!schemeList) {
-		console.log('初始化schemeList', defaultSchemeList);
-		schemeList = deepClone(defaultSchemeList);
-		store.put('schemeList', defaultSchemeList);
-	} else {
-		// 升级版本数据修复
-		let flag = false;
-		for (const scheme of schemeList as (IScheme & { groupName: string })[]) {
-			if (scheme.groupName) {
-				flag = true;
-				scheme.groupNames = [scheme.groupName];
-				delete scheme.groupName;
-			} else if (scheme.groupName === '') {
-				flag = true;
-				delete scheme.groupName;
-			}
-		}
-		if (flag) {
-			store.put('schemeList', schemeList);
-		}
-	}
-
-	// 2. 初始化groupSchemeNames
-	const groupSchemeNames = store.get('groupSchemeNames');
-	if (!groupSchemeNames) {
-		const toSaveMap: Record<string, GroupSchemeName> = {}
-		schemeList.forEach(scheme => {
-			if (!scheme.groupNames || !(scheme.groupNames?.length)) {
-				scheme.groupNames = ['未分组'];
-			}
-			scheme.groupNames.forEach(groupName => {
-				if (!toSaveMap[groupName]) {
-					toSaveMap[groupName] = {
-						groupName, hidden: scheme.hidden || false, schemeNames: []
-					};
-				} else if (scheme.hidden) {
-					// 如果已有分组且当前 scheme 要求隐藏，更新为隐藏
-					toSaveMap[groupName].hidden = true;
-				}
-				if (!toSaveMap[groupName].schemeNames.includes(scheme.schemeName)) {
-					toSaveMap[groupName].schemeNames.push(scheme.schemeName);
-				}
-			});
-		});
-		const toSave = Object.keys(toSaveMap).map(key => toSaveMap[key]);
-		console.log('初始化groupSchemeNames', toSave);
-		store.put('groupSchemeNames', toSave);
-	}
+	// 初始化并迁移旧数据：数字/重复 ID -> UUID，旧 groupName -> groupNames。
+	const schemeList = migrateSchemeList(store.get('schemeList'));
+	persistSchemeList(schemeList);
 
 	// 返回已保存的方案列表，如果未保存过，返回common中的schemeList
 	webview.on('getSchemeList').subscribe(([_param, done]) => {
@@ -71,11 +33,11 @@ export default function webviewSchemeList() {
 		// 	item.inner = schemeNameMap[item.schemeName] || false;
 		// });
 		// done(savedSchemeList);
-		done(store.get('schemeList'));
+		done(readSchemeList());
 	});
 
 	webview.on('getGroupSchemeNames').subscribe(([_param, done]) => {
-		done(store.get('groupSchemeNames'));
+		done(readDerivedGroupSchemeNames());
 	});
 
 	webview.on('getDefaultSchemeList').subscribe(([_param, done]) => {
@@ -89,11 +51,12 @@ export default function webviewSchemeList() {
 		// 	if (s.groupName) groupNamesMap[s.groupName] = 1;
 		// });
 		// done(Object.keys(groupNamesMap));
-		done(store.get('groupSchemeNames').map((groupSchemeName: GroupSchemeName) => groupSchemeName.groupName));
+		done(readDerivedGroupSchemeNames().map(group => group.groupName));
 	});
 
 	webview.on('saveGroupSchemeNames').subscribe(([params, done]) => {
-		store.put('groupSchemeNames', params);
+		const derivedGroups = deriveGroupSchemeNames(readSchemeList(), Array.isArray(params) ? params : []);
+		store.put('groupSchemeNames', toGroupSchemeMetadata(derivedGroups));
 		done({ error: 0, message: 'success' });
 	});
 
@@ -111,47 +74,51 @@ export default function webviewSchemeList() {
 		// }
 		// store.put('schemeList', schemeList);
 		// done('success');
-		const schemeList = store.get('schemeList');
+		const schemeList = readSchemeList();
 		const { type, oldScheme, newScheme } = params;
 		if (type === 'modify') {
-			if (!newScheme.schemeName) {
+			const schemeName = normalizeSchemeName(newScheme?.schemeName);
+			if (!schemeName) {
 				done({ error: 1, message: '方案名不能为空' });
 				return;
 			}
-			const index = schemeList.findIndex((scheme: IScheme) => scheme.schemeName === oldScheme.schemeName);
+			const index = findSchemeIndex(schemeList, oldScheme);
 			if (index === -1) {
 				done({ error: 1, message: '未找到该方案' });
 				return;
 			}
-			schemeList[index] = newScheme;
-			store.put('schemeList', schemeList);
-			updateGroupSchemeNamesBySchemeUpdate(params);
-			done({ error: 0, message: 'success' });
-			return;
-		} else if (type === 'add' || type === 'copy') {
-			const index = schemeList.findIndex((scheme: IScheme) => scheme.schemeName === newScheme.schemeName);
-			if (!newScheme.schemeName) {
-				done({ error: 1, message: '方案名不能为空' });
-				return;
-			}
-			if (index !== -1) {
+			if (hasDuplicateSchemeName(schemeList, schemeName, index)) {
 				done({ error: 1, message: '方案名重复' });
 				return;
 			}
-			schemeList.push(newScheme);
-			store.put('schemeList', schemeList);
-			updateGroupSchemeNamesBySchemeUpdate(params);
+			// 方案 ID 是不可变身份，前端修改方案时无权覆盖。
+			schemeList[index] = normalizeScheme(newScheme, String(schemeList[index].id));
+			persistSchemeList(schemeList);
+			done({ error: 0, message: 'success' });
+			return;
+		} else if (type === 'add' || type === 'copy') {
+			const schemeName = normalizeSchemeName(newScheme?.schemeName);
+			if (!schemeName) {
+				done({ error: 1, message: '方案名不能为空' });
+				return;
+			}
+			if (hasDuplicateSchemeName(schemeList, schemeName)) {
+				done({ error: 1, message: '方案名重复' });
+				return;
+			}
+			// 新增和复制必须生成新 UUID，不能沿用前端传来的数字 ID 或源方案 ID。
+			schemeList.push(normalizeScheme(newScheme, createSchemeId()));
+			persistSchemeList(schemeList);
 			done({ error: 0, message: 'success' });
 			return;
 		} else if (type === 'remove') {
-			const index = schemeList.findIndex((scheme: IScheme) => scheme.schemeName === oldScheme.schemeName);
+			const index = findSchemeIndex(schemeList, oldScheme);
 			if (index === -1) {
 				done({ error: 1, message: '未找到该方案' });
 				return;
 			}
 			schemeList.splice(index, 1);
-			store.put('schemeList', schemeList);
-			updateGroupSchemeNamesBySchemeUpdate(params);
+			persistSchemeList(schemeList);
 			done({ error: 0, message: 'success' });
 			return;
 		}
@@ -160,32 +127,32 @@ export default function webviewSchemeList() {
 	});
 
 	webview.on('removeScheme').subscribe(([params, done]) => {
-		const schemeList = store.get('schemeList');
-		const index = schemeList.findIndex((scheme: IScheme) => scheme.schemeName === params.schemeName);
+		const schemeList = readSchemeList();
+		const index = findSchemeIndex(schemeList, params);
 		if (index === -1) {
-			return { error: 1, message: '未找到该方案' };
+			done({ error: 1, message: '未找到该方案' });
+			return;
 		}
 		schemeList.splice(index, 1);
-		updateGroupSchemeNamesBySchemeUpdate({
-			type: 'remove', oldScheme: params, newScheme: null,
-		});
-		store.put('schemeList', schemeList);
+		persistSchemeList(schemeList);
 		done({ error: 0, message: 'success' });
 	});
 
 
 	// 保存方案列表
-	webview.on('saveSchemeList').subscribe(([schemeList, done]) => {
-		store.put('schemeList', schemeList);
+	webview.on('saveSchemeList').subscribe(([incomingSchemeList, done]) => {
+		if (!Array.isArray(incomingSchemeList)) {
+			done({ error: 1, message: '方案列表格式错误' });
+			return;
+		}
+		const invalidName = findInvalidOrDuplicateSchemeName(incomingSchemeList);
+		if (invalidName) {
+			done({ error: 1, message: invalidName });
+			return;
+		}
+		const schemeList = normalizeIncomingSchemeList(incomingSchemeList, readSchemeList());
+		persistSchemeList(schemeList);
 		console.log('schemeList已保存');
-		// 找到被删除了的内置方案存起来
-		const deletedSchemeNames = Object.keys(schemeNameMap).filter(schemeName => {
-			for (const scheme of schemeList) {
-				if (scheme.schemeName == schemeName) return false;
-			}
-			return true;
-		});
-		store.put('deletedSchemeNames', deletedSchemeNames);
 		done('success');
 	});
 
@@ -194,16 +161,16 @@ export default function webviewSchemeList() {
 	 * 收藏/取消收藏方案
 	 */
 	webview.on('starScheme').subscribe(([opt, done]) => {
-		const savedSchemeList = store.get('schemeList', defaultSchemeList);
-		for (const scheme of savedSchemeList) {
-			if (scheme.schemeName === opt.schemeName) {
-				scheme.star = opt.star;
-				done(scheme);
-				store.put('schemeList', savedSchemeList);
-				toastLog(`${!opt.star ? '取消' : ''}收藏成功`);
-				return;
-			}
+		const savedSchemeList = readSchemeList();
+		const index = findSchemeIndex(savedSchemeList, opt);
+		if (index === -1) {
+			done({ error: 1, message: '未找到该方案' });
+			return;
 		}
+		savedSchemeList[index].star = !!opt.star;
+		persistSchemeList(savedSchemeList);
+		done(savedSchemeList[index]);
+		toastLog(`${!opt.star ? '取消' : ''}收藏成功`);
 	});
 
 	// 注册返回界面的事件
@@ -298,82 +265,149 @@ export default function webviewSchemeList() {
 
 
 
-const updateGroupSchemeNamesBySchemeUpdate = (option: {
-	oldScheme?: IScheme,
-	newScheme: IScheme,
-	type: 'copy' | 'modify' | 'add' | 'remove'
-}): void => {
-	const { type, oldScheme, newScheme } = option;
-	if (oldScheme && (!oldScheme.groupNames || oldScheme.groupNames.length === 0)) {
-		oldScheme.groupNames = ['未分组'];
+type LegacyScheme = IScheme & { groupName?: string };
+
+const normalizeSchemeName = (schemeName: unknown): string => {
+	return typeof schemeName === 'string' ? schemeName.trim() : '';
+};
+
+const normalizeScheme = (source: IScheme, immutableId: string): IScheme => {
+	const scheme = deepClone(source || {}) as LegacyScheme;
+	scheme.id = immutableId;
+	scheme.schemeName = normalizeSchemeName(scheme.schemeName);
+	if (scheme.groupName && (!scheme.groupNames || scheme.groupNames.length === 0)) {
+		scheme.groupNames = [scheme.groupName];
 	}
-	if (newScheme && (!newScheme.groupNames || newScheme.groupNames.length === 0)) {
-		newScheme.groupNames = ['未分组'];
+	delete scheme.groupName;
+	scheme.groupNames = normalizeSchemeGroupNames(scheme.groupNames);
+	if (!Array.isArray(scheme.list)) scheme.list = [];
+	return scheme;
+};
+
+const migrateSchemeList = (storedSchemeList: IScheme[] | null): IScheme[] => {
+	const source = Array.isArray(storedSchemeList)
+		? storedSchemeList
+		: deepClone(defaultSchemeList);
+	const usedIds: string[] = [];
+
+	return source.map(rawScheme => {
+		const defaultScheme = rawScheme?.inner
+			? defaultSchemeList.find(item => item.schemeName === rawScheme.schemeName)
+			: null;
+		let immutableId = defaultScheme
+			? String(defaultScheme.id)
+			: (isSchemeUuid(rawScheme?.id) ? rawScheme.id : createSchemeId());
+		if (usedIds.includes(immutableId)) immutableId = createSchemeId();
+		usedIds.push(immutableId);
+		return normalizeScheme(rawScheme, immutableId);
+	});
+};
+
+const readSchemeList = (): IScheme[] => {
+	const saved = store.get('schemeList', []);
+	return Array.isArray(saved) ? saved : [];
+};
+
+const readGroupSchemeMetadata = (): GroupSchemeMetadata[] => {
+	const saved = store.get('groupSchemeNames', []);
+	return toGroupSchemeMetadata(Array.isArray(saved) ? saved : []);
+};
+
+const readDerivedGroupSchemeNames = (): GroupSchemeName[] => {
+	return deriveGroupSchemeNames(readSchemeList(), readGroupSchemeMetadata());
+};
+
+const syncGroupSchemeMetadata = (schemeList: IScheme[]): void => {
+	const derivedGroups = deriveGroupSchemeNames(schemeList, readGroupSchemeMetadata());
+	store.put('groupSchemeNames', toGroupSchemeMetadata(derivedGroups));
+};
+
+const reconcileCurrentScheme = (schemeList: IScheme[]): void => {
+	const currentScheme: IScheme | null = store.get('currentScheme', null);
+	if (!currentScheme) return;
+	const index = findSchemeIndex(schemeList, currentScheme);
+	// 删除当前方案时清空旧快照；修改/重命名时同步成列表中的最新数据。
+	store.put('currentScheme', index === -1 ? null : deepClone(schemeList[index]));
+};
+
+const persistSchemeList = (schemeList: IScheme[]): void => {
+	store.put('schemeList', schemeList);
+	syncGroupSchemeMetadata(schemeList);
+	reconcileCurrentScheme(schemeList);
+	const deletedSchemeNames = Object.keys(schemeNameMap).filter(schemeName => {
+		return !schemeList.some(scheme => scheme.schemeName === schemeName);
+	});
+	store.put('deletedSchemeNames', deletedSchemeNames);
+};
+
+const findSchemeIndex = (schemeList: IScheme[], reference: Partial<IScheme> | null): number => {
+	if (!reference) return -1;
+	if (isSchemeUuid(reference.id)) {
+		const index = schemeList.findIndex(scheme => String(scheme.id) === reference.id);
+		if (index !== -1) return index;
 	}
+	const schemeName = normalizeSchemeName(reference.schemeName);
+	return schemeName
+		? schemeList.findIndex(scheme => scheme.schemeName === schemeName)
+		: -1;
+};
 
-	let groupSchemeNames: GroupSchemeName[] = store.get('groupSchemeNames');
-	if ('modify' === type) {
-		// 直接找到原来的分组，将原来的分组中的名字修改为新的名字
-		const deletedGroupSchemeNames = oldScheme.groupNames.filter(groupName => !newScheme.groupNames.includes(groupName));
-		const commonGroupNames = oldScheme.groupNames.filter(groupName => newScheme.groupNames.includes(groupName));
-		const addedGroupSchemeNames = newScheme.groupNames.filter(groupName => !oldScheme.groupNames.includes(groupName));
-		// 1. 删除分组中删除旧的方案名
-		deletedGroupSchemeNames.forEach(groupName => {
-			const groupSchemeName = groupSchemeNames.find(groupSchemeName => groupSchemeName.groupName === groupName);
-			if (groupSchemeName) {
-				const index = groupSchemeName.schemeNames.findIndex(schemeName => schemeName === oldScheme.schemeName);
-				groupSchemeName.schemeNames.splice(index, 1);
-			}
-		});
+const hasDuplicateSchemeName = (
+	schemeList: IScheme[],
+	schemeName: string,
+	excludedIndex = -1
+): boolean => {
+	return schemeList.some((scheme, index) => index !== excludedIndex && scheme.schemeName === schemeName);
+};
 
-		// 2. 公共分组中更新方案名
-		commonGroupNames.forEach(groupName => {
-			const groupSchemeName = groupSchemeNames.find(groupSchemeName => groupSchemeName.groupName === groupName);
-			if (groupSchemeName) {
-				const index = groupSchemeName.schemeNames.findIndex(schemeName => schemeName === oldScheme.schemeName);
-				groupSchemeName.schemeNames.splice(index, 1, newScheme.schemeName);
-			}
-		});
-
-		// 3. 新增分组中新增方案名
-		addedGroupSchemeNames.forEach(groupName => {
-			const groupSchemeName = groupSchemeNames.find(groupSchemeName => groupSchemeName.groupName === groupName);
-			if (!groupSchemeName) {
-				groupSchemeNames.push({
-					groupName, hidden: newScheme.hidden || false, schemeNames: [newScheme.schemeName]
-				});
-			} else {
-				groupSchemeName.schemeNames.push(newScheme.schemeName);
-			}
-		});
-
-		// 4. 删除空分组
-		groupSchemeNames = groupSchemeNames.filter(groupSchemeName => groupSchemeName.schemeNames.length > 0);
-	} else if ('copy' === type || 'add' === type) {
-		const addedGroupSchemeNames = newScheme.groupNames;
-		// 3. 新增分组中新增方案名
-		addedGroupSchemeNames.forEach(groupName => {
-			const groupSchemeName = groupSchemeNames.find(groupSchemeName => groupSchemeName.groupName === groupName);
-			if (!groupSchemeName) {
-				groupSchemeNames.push({
-					groupName, hidden: newScheme.hidden || false, schemeNames: [newScheme.schemeName]
-				});
-			} else {
-				groupSchemeName.schemeNames.push(newScheme.schemeName);
-			}
-		});
-	} else if ('remove' === type) {
-		// 1. 删除分组中删除旧的方案名
-		oldScheme.groupNames.forEach(groupName => {
-			const groupSchemeName = groupSchemeNames.find(groupSchemeName => groupSchemeName.groupName === groupName);
-			if (groupSchemeName) {
-				const index = groupSchemeName.schemeNames.findIndex(schemeName => schemeName === oldScheme.schemeName);
-				groupSchemeName.schemeNames.splice(index, 1);
-			}
-		});
-
-		// 4. 删除空分组
-		groupSchemeNames = groupSchemeNames.filter(groupSchemeName => groupSchemeName.schemeNames.length > 0);
+const findInvalidOrDuplicateSchemeName = (schemeList: IScheme[]): string => {
+	const names: string[] = [];
+	for (const scheme of schemeList) {
+		const schemeName = normalizeSchemeName(scheme?.schemeName);
+		if (!schemeName) return '方案名不能为空';
+		if (names.includes(schemeName)) return `方案名重复：${schemeName}`;
+		names.push(schemeName);
 	}
-	store.put('groupSchemeNames', groupSchemeNames);
-}
+	return '';
+};
+
+/**
+ * 兼容旧前端的整表保存，同时保证已有 UUID 不被改写、复制项不会复用源 UUID。
+ */
+const normalizeIncomingSchemeList = (incoming: IScheme[], existing: IScheme[]): IScheme[] => {
+	const ownerById: Record<string, number> = {};
+
+	incoming.forEach((scheme, index) => {
+		if (!isSchemeUuid(scheme?.id)) return;
+		const id = scheme.id;
+		const oldScheme = existing.find(item => String(item.id) === id);
+		// 未知 UUID 不能覆盖已有身份；新方案统一由后端生成 UUID。
+		if (!oldScheme) return;
+		if (typeof ownerById[id] === 'number') return;
+		const sameIdIndexes = incoming
+			.map((item, itemIndex) => isSchemeUuid(item?.id) && item.id === id ? itemIndex : -1)
+			.filter(itemIndex => itemIndex !== -1);
+		const exactNameIndex = sameIdIndexes.find(itemIndex => {
+			return normalizeSchemeName(incoming[itemIndex].schemeName) === oldScheme.schemeName;
+		});
+		ownerById[id] = typeof exactNameIndex === 'number' ? exactNameIndex : index;
+	});
+
+	const usedIds: string[] = [];
+	return incoming.map((scheme, index) => {
+		let immutableId = '';
+		if (isSchemeUuid(scheme?.id) && ownerById[scheme.id] === index) {
+			immutableId = scheme.id;
+		} else {
+			const oldScheme = existing.find(item => {
+				return item.schemeName === normalizeSchemeName(scheme?.schemeName)
+					&& isSchemeUuid(item.id)
+					&& !usedIds.includes(item.id);
+			});
+			if (oldScheme) immutableId = String(oldScheme.id);
+		}
+		if (!immutableId || usedIds.includes(immutableId)) immutableId = createSchemeId();
+		usedIds.push(immutableId);
+		return normalizeScheme(scheme, immutableId);
+	});
+};

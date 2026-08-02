@@ -2,7 +2,7 @@ import store, { storeCommon } from '@/system/Store/store';
 import script from '@/system/script';
 import { MyFloaty } from './MyFloaty';
 import { IScheme } from '@/interface/IScheme';
-import { GroupSchemeName } from '@/common/schemeList';
+import { deriveGroupSchemeNames, GroupSchemeName } from '@/common/schemeList';
 import { getHeightPixels, getWidthPixels } from '@auto.pro/core';
 
 
@@ -27,10 +27,13 @@ export default {
 				// schemeDialog.getWindow().setLayout(android.view.WindowManager.LayoutParams.MATCH_PARENT, android.view.WindowManager.LayoutParams.WRAP_CONTENT);
 			}
 
-			let groupSchemeNames: GroupSchemeName[] = store.get('groupSchemeNames');
 			if (!schemeList) {
 				schemeList = store.get('schemeList');
 			}
+			let groupSchemeNames: GroupSchemeName[] = deriveGroupSchemeNames(
+				schemeList,
+				store.get('groupSchemeNames', [])
+			);
 			groupSchemeNames = groupSchemeNames.filter(group => !group.hidden);
 			groupSchemeNames.forEach(group => {
 				group.schemeNames = group.schemeNames.filter(schemeName => {
