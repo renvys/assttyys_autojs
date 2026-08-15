@@ -53,7 +53,21 @@ export class Func703 implements IFuncOrigin {
 		oper: [
 			[right, 1280, 720, 1091, 580, 1195, 679, 2000], // 点击 右侧探索按钮
 		]
-	}];
+	}, {  // 注灵搜寻
+		desc: [1280, 720,
+			[
+				[right, 999, 653, 0xfff9d9],
+				[right, 1127, 592, 0x27231f],
+				[right, 1159, 589, 0x27231f],
+				[right, 1138, 639, 0x27231f],
+				[right, 1170, 655, 0x27231f],
+				[right, 912, 660, 0xfffefa],
+			]
+		],
+		oper: [
+			[right, 1280, 720, 1091, 580, 1195, 679, 2000], // 点击 右侧探索按钮
+		]
+	},];
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
 		// 已经在御灵挑战界面，本功能不再操作，交给方案里后续功能处理
 		if (thisScript.oper({
@@ -78,7 +92,7 @@ export class Func703 implements IFuncOrigin {
 		while (thisScript.oper({
 			id: 703,
 			name: '武道大会_点击探索',
-			operator: [thisOperator[2]]
+			operator: [thisOperator[2], thisOperator[3]],
 		})) {
 			curCnt++;
 			thisScript.keepScreen(false);
