@@ -34,11 +34,6 @@ export class Func029 implements IFuncOrigin {
 			[center, 1280, 720, 559, 142, 583, 175, 1000], // 龙珏庭院ocr识别后点击区域
 			[center, 1280, 720, 592, 195, 621, 221, 1000], // 茨球庭院ocr识别后点击区域
 		]
-	}, { // 5突破界面，关闭突破界面
-		desc: '突破界面',
-		oper: [
-			[center, 1280, 720, 1187, 112, 1228, 150, 1000],
-		]
 	}]
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
 		if (thisScript.oper({
@@ -76,12 +71,6 @@ export class Func029 implements IFuncOrigin {
 				return true;
 			}
 			return false;
-		}
-		if (thisScript.oper({
-			name: '突破界面',
-			operator: [thisOperator[5]]
-		})) {
-			return true;
 		}
 		return false;
 	}
