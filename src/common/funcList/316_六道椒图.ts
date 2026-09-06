@@ -329,13 +329,13 @@ export class Func316 implements IFuncOrigin {
 			[center, 1280, 720, 1120, 586, 1229, 678, 500],
 		]
 	}, { // 20 已适配66 boss_跳过
-		desc: [
-			1280, 720,
+		desc: [1280, 720,
 			[
-				[right, 1206, 31, 0xd2e7f7],
+				[right, 1180, 24, 0xe3e3f1],
 				[right, 1223, 32, 0xd1dced],
-				[right, 1180, 26, 0xe3e3f1],
-				[right, 1146, 30, 0xcad6e9],
+				[right, 1182, 40, 0xa7bde9],
+				[right, 1239, 41, 0x1d2258],
+				[right, 1232, 42, 0x1d245b],
 			]
 		],
 		oper: [
