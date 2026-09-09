@@ -23,16 +23,17 @@ export class Func029 implements IFuncOrigin {
 	}, {
 		// 庭院已打开菜单，另另外一种图标
 		desc: '庭院已打开菜单_另另外一种图标'
-	}, { // 4 龙珏庭院_探索灯笼
+	}, { // 4 适配庭院
 		desc: [1280, 720,
 			[
 				[left, 0, 0, 0x9bc0ee], // 随便填的，为了不报错
 			]
 		],
 		oper: [
-			[center, 1280, 720, 550, 130, 600, 180, 1000], // ocr识别区域1
+			[center, 1280, 720, 550, 130, 600, 180, 1000], // 龙珏ocr识别区域1
 			[center, 1280, 720, 559, 142, 583, 175, 1000], // 龙珏庭院ocr识别后点击区域
 			[center, 1280, 720, 592, 195, 621, 221, 1000], // 茨球庭院ocr识别后点击区域
+			[center, 1280, 720, 720, 235, 760, 250, 1000], // 葛叶庭院ocr识别后点击区域
 		]
 	}]
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
@@ -70,7 +71,14 @@ export class Func029 implements IFuncOrigin {
 				thisScript.regionClick([thisOperator[4].oper[2]]);
 				return true;
 			}
-			return false;
+			// 茨球庭院
+			if (thisScript.oper({
+				name: '葛叶庭院识别',
+				operator: [{ desc: '葛叶庭院-町中定位' }]
+			})) {
+				thisScript.regionClick([thisOperator[4].oper[3]]);
+				return true;
+			}
 		}
 		return false;
 	}

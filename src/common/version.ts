@@ -1575,5 +1575,8 @@ export const versionList = [{
 }, {
 	version: '20260815_01',
 	desc: '优化：703武道大会增加自动停止机制：连选点击搜寻5次后自动停止'
+}, {
+	version: '20260909',
+	desc: '适配：葛叶庭院'
 }];
 export default versionList[versionList.length - 1].version;
