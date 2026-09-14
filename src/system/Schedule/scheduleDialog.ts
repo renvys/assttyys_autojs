@@ -1,18 +1,50 @@
 import schedule from '@/system/Schedule/index';
+import store from '@/system/Store/store';
+
+const ONE_HOUR_MS = 60 * 60 * 1000;
+
+interface ScheduleListItem {
+	name: string;
+	status: string;
+	statusStr: string;
+	statusColor: string;
+	nextDateStr?: string;
+	nextDateBueatifyTime?: string;
+}
+
+/**
+ * 列表行与数据的对应关系。
+ * 注意：item_bind 触发时 itemHolder.item 可能还是 null（数据要在 item_data_bind 阶段才写入），
+ * 所以不能在绑定时就把 item 存进闭包里，只能在点击时通过 itemHolder 实时读取；
+ * 列表滚动复用后 itemHolder 会被替换成新的，这里保存的是最新一次绑定的引用。
+ */
+interface ScheduleRow {
+	itemView: any;
+	itemHolder: any;
+	item: ScheduleListItem;
+	clickBound: boolean;
+}
 
 export const showScheduleDialog = function () {
 	const view = ui.inflate(`<frame>
         <vertical>
             <list id="list">
-                <card w="*" h="50" margin="5 2" cardCornerRadius="2dp"
+                <card w="*" h="78" margin="5 2" cardCornerRadius="2dp"
                     cardElevation="1dp" foreground="?selectableItemBackground">
-                    <horizontal gravity="center_vertical">
-                        <vertical padding="10 2" h="auto" w="*" layout_weight="1">
-                            <text id="title" text="{{this.name}}" textColor="#222222" textSize="16sp" maxLines="1" />
-                            <text visibility="{{this.status === 'waiting' ? 'visible' : 'gone'}}" text="{{this.nextDateBueatifyTime}}" textColor="#999999" textSize="14sp" maxLines="1" />
-                        </vertical>
-                        <text id="statusText" w="80" gravity="center" text="{{this.statusStr}}" textColor="{{this.statusColor}}" />
-                    </horizontal>
+                    <vertical padding="10 4" h="*" w="*">
+                        <text id="title" text="{{this.name}}" textColor="#222222" textSize="16sp" maxLines="1" />
+                        <horizontal gravity="center_vertical" margin="0 2">
+                            <text id="nextTime" visibility="{{this.status === 'waiting' ? 'visible' : 'gone'}}"
+                                text="{{this.nextDateBueatifyTime}}" textColor="#999999" textSize="13sp" maxLines="1"
+                                w="*" layout_weight="1" />
+                            <text id="advanceBtn" visibility="{{this.status === 'waiting' ? 'visible' : 'gone'}}"
+                                text="提前1h" textColor="#4f91de" textSize="13sp" padding="6 3" />
+                            <text id="delayBtn" visibility="{{this.status === 'waiting' ? 'visible' : 'gone'}}"
+                                text="延长1h" textColor="#4f91de" textSize="13sp" padding="6 3" />
+                            <text id="statusText" w="58" gravity="center" text="{{this.statusStr}}"
+                                textColor="{{this.statusColor}}" />
+                        </horizontal>
+                    </vertical>
                 </card>
             </list>
         </vertical>
@@ -81,19 +113,112 @@ export const showScheduleDialog = function () {
 
 
 	view.list.setDataSource([...topList, ...waitList]);
-	view.list.on('item_bind', function (itemView, itemHolder) {
-		itemView.statusText.on('click', () => {
-			const item = itemHolder.item;
-			if (item.status !== 'waiting') return;
-			scheduleDialog.dismiss();
 
-			const job = schedule.getJobByName(item.name);
-			if (job) {
-				job.nextDate = new Date();
-				schedule.immediateTimerInterval();
-			}
-		});
-	});
+	const rows: ScheduleRow[] = [];
+
+	/**
+	 * 取当前行对应的数据。点击时 itemHolder.item 才是有效的，
+	 * 若此时仍为 null（例如列表正在复用/解绑），退回最近一次读到的非空数据。
+	 */
+	const getRowItem = (row: ScheduleRow): ScheduleListItem => {
+		const item = (row.itemHolder && row.itemHolder.item) || row.item;
+		return item || null;
+	};
+
+	const onItemBound = function (itemView: any, itemHolder: any) {
+		let row = rows.find(item => item.itemView === itemView);
+		if (!row) {
+			row = { itemView, itemHolder: null, item: null, clickBound: false };
+			rows.push(row);
+		}
+		// item_bind / item_data_bind 都会走到这里，每次都刷新当前行持有的数据
+		row.itemHolder = itemHolder;
+		if (itemHolder && itemHolder.item) {
+			row.item = itemHolder.item;
+		}
+		if (row.clickBound) return;
+		// 事件只注册一次，避免列表复用后同一行重复注册导致一次点击执行多次
+		row.clickBound = true;
+		itemView.advanceBtn.on('click', () => adjustJobNextDate(itemView, () => getRowItem(row), -1));
+		itemView.delayBtn.on('click', () => adjustJobNextDate(itemView, () => getRowItem(row), 1));
+		itemView.statusText.on('click', () => runJobImmediately(() => getRowItem(row), scheduleDialog));
+	};
+
+	view.list.on('item_bind', onItemBound);
+	view.list.on('item_data_bind', onItemBound);
+}
+
+function adjustJobNextDate(itemView: any, resolveItem: () => ScheduleListItem, hourOffset: number) {
+	try {
+		const item = resolveItem();
+		if (!item || item.status !== 'waiting') return;
+
+		const job = schedule.getJobByName(item.name);
+		if (!job) return;
+
+		const now = Date.now();
+		const currentTime = job.nextDate ? job.nextDate.getTime() : now;
+		// 提前：最多提前到当前时间（即立即执行）；延长：从原定时间往后顺延
+		job.nextDate = new Date(Math.max(Math.max(currentTime, now) + hourOffset * ONE_HOUR_MS, now));
+
+		item.nextDateBueatifyTime = bueatifyTime(job.nextDate.getTime() - Date.now());
+		item.nextDateStr = formatDate(job.nextDate);
+		itemView.nextTime.text(item.nextDateBueatifyTime);
+
+		persistJobNextDate(job.name, job.nextDate);
+		if (job.nextDate.getTime() <= Date.now()) {
+			schedule.immediateTimerInterval();
+		}
+
+		if (hourOffset < 0) {
+			toast(job.nextDate.getTime() <= Date.now() ? '已提前至立即执行' : '已提前一小时');
+		} else {
+			toast('已延长一小时');
+		}
+	} catch (e) {
+		console.error(`[scheduleDialog]调整下次执行时间失败：${e}`);
+		toast('调整失败，请查看日志');
+	}
+}
+
+function runJobImmediately(resolveItem: () => ScheduleListItem, scheduleDialog: any) {
+	try {
+		// 先取数据再关闭弹窗：弹窗关闭后列表会解绑，itemHolder.item 可能被清空
+		const item = resolveItem();
+		if (!item || item.status !== 'waiting') return;
+
+		const job = schedule.getJobByName(item.name);
+		scheduleDialog.dismiss();
+		if (!job) return;
+
+		job.nextDate = new Date();
+		persistJobNextDate(job.name, job.nextDate);
+		schedule.immediateTimerInterval();
+	} catch (e) {
+		console.error(`[scheduleDialog]立即执行定时任务失败：${e}`);
+		toast('执行失败，请查看日志');
+	}
+}
+
+function persistJobNextDate(jobName: string, nextDate: Date) {
+	const scheduleList = store.get('scheduleList');
+	if (Array.isArray(scheduleList) && updateJobNextDate(scheduleList, jobName, nextDate)) {
+		store.put('scheduleList', scheduleList);
+	}
+
+	const currentConfigName = store.get('currentScheduleConfigName');
+	const configs = store.get('scheduleConfigs') || {};
+	const configJobs = currentConfigName ? configs[currentConfigName] : null;
+	if (Array.isArray(configJobs) && updateJobNextDate(configJobs, jobName, nextDate)) {
+		store.put('scheduleConfigs', configs);
+	}
+}
+
+function updateJobNextDate(jobs: any[], jobName: string, nextDate: Date): boolean {
+	const job = jobs.find(item => item.name === jobName);
+	if (!job) return false;
+	job.nextDate = nextDate;
+	return true;
 }
 
 
