@@ -1578,5 +1578,14 @@ export const versionList = [{
 }, {
 	version: '20260909',
 	desc: '适配：葛叶庭院'
-}];
+}, {
+	version: '20261001_01',
+	desc: '修复：700进入结界，702寄养，401对弈竞猜不同设备识别不到'
+}, {
+	version: '20261002_01',
+	desc: '新增：401适配更多博主，并且可以统计所有博主来进行选择，701结界卡更换修复识别'
+}
+
+];
+
 export default versionList[versionList.length - 1].version;

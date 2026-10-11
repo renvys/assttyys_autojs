@@ -603,10 +603,10 @@ export default function webviewSettigns() {
 			baos.close();
 			const str = 'data:image/png;base64,' + android.util.Base64.encodeToString(baos.toByteArray(), android.util.Base64.NO_WRAP);
 			done(str);
-			// bmp.recycle();
 		} catch (e) {
 			console.error(e);
 			done(null);
+		} finally {
 			bmp && bmp.recycle();
 		}
 	});

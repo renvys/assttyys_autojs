@@ -962,6 +962,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 	'悬赏_已追踪任务': {
 		region: [left, 1280, 720, 0, 112, 105, 500],
 		desc: [
+			// 取色不太好，更新颜色后临时加一组，看后续反馈
 			[
 				1280, 720,
 				[
@@ -970,6 +971,16 @@ const multiFindColors: IMultiFindColorsOrigin = {
 					[left, 85, 257, 0x9a8059],
 					[left, 31, 253, 0x8a7251],
 					[left, 28, 334, 0xbbb39d],
+				]
+			],
+			[
+				1280, 720,
+				[
+					[left, 21, 278, 0x9c8f64],
+					[left, 91, 283, 0x937854],
+					[left, 85, 257, 0xbf9a73],
+					[left, 31, 253, 0xaf9565],
+					[left, 28, 334, 0xbbb29d],
 				]
 			]
 		],

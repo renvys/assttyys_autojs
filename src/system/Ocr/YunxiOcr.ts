@@ -162,6 +162,8 @@ export class YunxiOcr implements IOcr {
 			} else if (new Date().getTime() - startTime > timeout) {
 				return [];
 			}
+			// 循环延时作为sleep，防止一直在执行ocr导致cpu占用过高，与findTextWithCompareColor的做法保持一致
+			sleep(200);
 		}
 	}
 

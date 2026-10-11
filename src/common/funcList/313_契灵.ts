@@ -67,12 +67,12 @@ export class Func313 implements IFuncOrigin {
 	}, { // 3 选择契灵
 		desc: [1280, 720,
 			[
-				[left, 54, 30, 0xefd390],
-				[left, 44, 40, 0xf5e6a6],
-				[left, 56, 50, 0xf0d591],
+				[left, 54, 30, 0xa66e3d],
+				[left, 40, 40, 0xf2e0a0],
+				[left, 56, 50, 0x9c6a3c],
 				[left, 77, 638, 0xf4f4cf],
 				[left, 186, 659, 0xf9eedb],
-				[left, 293, 627, 0xf1efc5],
+				[left, 293, 627, 0xf2eec5],
 			]
 		],
 		oper: [

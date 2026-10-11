@@ -222,8 +222,8 @@ export function getNormalRandom(range: [number, number], mean: number): number {
  */
 export function getRegionBiasRnd2(region, pointBias, influence) {
 	const [meanX, meanY] = pointBias;
-	const sdX = (0.1 / influence * influence) * (region[2] - region[0]);
-	const sdY = (0.1 / influence * influence) * (region[3] - region[1]);
+	const sdX = 0.1 / (influence * influence) * (region[2] - region[0]);
+	const sdY = 0.1 / (influence * influence) * (region[3] - region[1]);
 	let u = 0,
 		v = 0;
 	while (u === 0) u = Math.random();

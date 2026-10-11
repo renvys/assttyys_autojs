@@ -65,7 +65,7 @@ class MlkitOcr implements IOcr {
 	 * 安装
 	 */
 	install(option: { failCallback: Function, successCallback: Function }): void {
-		if (app.autojs.versionCode < '9121400') {
+		if (app.autojs.versionCode < 9121400) {
 			toastLog('软件版本过低，当前版本不支持ocr请安装新版');
 			option.failCallback();
 			return;
@@ -128,6 +128,8 @@ class MlkitOcr implements IOcr {
 			} else if (new Date().getTime() - startTime > timeout) {
 				return [];
 			}
+			// 循环延时作为sleep，防止一直在执行ocr导致cpu占用过高，与findTextWithCompareColor的做法保持一致
+			sleep(200);
 		}
 	}
 
