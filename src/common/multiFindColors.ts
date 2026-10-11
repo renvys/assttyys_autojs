@@ -1921,7 +1921,17 @@ const multiFindColors: IMultiFindColorsOrigin = {
 					[left, 257, 56, 0x876238],
 					[left, 257, 25, 0x8f6b4b]
 				]
-			]
+			],
+			[1280, 720,
+				[
+					[left, 311, 26, 0xcbc597],
+					[left, 311, 29, 0xcbc597],
+					[left, 311, 35, 0xc2b990],
+					[left, 311, 45, 0xcbc39a],
+					[left, 312, 28, 0xc1bb90],
+					[left, 310, 32, 0xb1a985],
+				]
+			],
 		]
 	},
 	'寄养狗粮_满级标识': {
@@ -1998,6 +2008,15 @@ const multiFindColors: IMultiFindColorsOrigin = {
 					[right, 1081, 54, 0x161a11],
 				]
 			],
+			[1280, 720,
+				[
+					[right, 1103, 14, 0xe47928],
+					[right, 1108, 28, 0xff9b33],
+					[right, 1105, 24, 0xff8c2e],
+					[right, 1115, 25, 0xe9792c],
+					[right, 1090, 20, 0xcf3e22],
+				]
+			],
 		]
 	},
 	'右下角锁定阵容': {
@@ -2011,7 +2030,16 @@ const multiFindColors: IMultiFindColorsOrigin = {
 					[right, 1066, 46, 0x0e100b],
 					[right, 1081, 54, 0x161a11],
 				]
-			]
+			],
+			[1280, 720,
+				[
+					[right, 801, 666, 0xababff],
+					[right, 831, 666, 0xbcb0f2],
+					[right, 816, 666, 0x856b48],
+					[right, 816, 682, 0x566cd2],
+					[right, 810, 673, 0x7b6142],
+				]
+			],
 		],
 	},
 	'六道椒图_升级buff': {
