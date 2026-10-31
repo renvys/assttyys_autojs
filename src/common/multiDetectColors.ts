@@ -464,17 +464,17 @@ const multiDetectColors: IMultiDetectColorsOrigin = {
 			]
 		]
 	},
-	'退出结算_经验金币buff_第一个掉落': {
+	'退出结算_经验金币buff_掉落物金框': {
 		desc: [1280, 720,
 			[
-				[left, 172, 657, 0x97bae0],
-				[left, 187, 668, 0xf7e624],
-				[left, 339, 668, 0xf7e525],
-				[center, 268, 177, 0x52422c],
-				[center, 363, 177, 0x5e492c],
-				[center, 270, 269, 0x604938]
+				[left, 187, 652, 0x92b7e4],
+				[left, 186, 667, 0xf6e42b],
+				[left, 315, 658, 0xf1eed2],
+				[left, 339, 666, 0xf7e82e],
+				[center, 429, 104, 0xfe9843],
+				[center, 449, 210, 0xffa840],
 			]
-		]
+		],
 	},
 	'退出结算_体力不足': {
 		desc: [1280, 720,
@@ -855,7 +855,19 @@ const multiDetectColors: IMultiDetectColorsOrigin = {
 				[right, 1021, 351, 0xffffff],
 			]
 		],
-	}
+	},
+	'悬赏界面': {
+		desc: [1280, 720,
+			[
+				[left, 45, 51, 0x6b4b33],
+				[left, 281, 47, 0x080c08],
+				[right, 1048, 43, 0x0d0c0d],
+				[right, 1270, 47, 0x715635],
+				[right, 1182, 641, 0x3b2e22],
+				[right, 1170, 610, 0xefe7ad],
+			]
+		]
+	},
 };
 
 

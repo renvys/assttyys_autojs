@@ -162,14 +162,15 @@ export class Func002 implements IFuncOrigin {
 		],
 		notForCnt: true,
 	}, {
-		// 14 打开后的达摩，所有点都被结算挡住了，使用经验，金币buff，和第一个奖励的xx作为特征
-		desc: '退出结算_经验金币buff_第一个掉落',
+		// 14 打开后的达摩，所有点都被结算挡住了，使用经验，金币buff，和第二个奖励金框作为特征,第一个奖励可能为紫蛇皮,兼容常规一行6个奖励,以及逢魔演武一行8个的情况
+		// 有的寮买不起经验金币buff,目前想不到解决办法
+		desc: '退出结算_经验金币buff_掉落物金框',
 		operStepRandom: [
-			[
-				[left, 1280, 720, 69, 171, 170, 452, 2000, 2],
-				[right, 1280, 720, 1104, 72, 1200, 528, 2000, 5],
+			[ // 缩小点击范围
+				[left, 1280, 720, 59, 32, 106, 662, 1000, 10], // 最后一个参数貌似表示点击时长下限,上限为+50
+				[right, 1280, 720, 1192, 49, 1261, 654, 1000, 10],
 			]
-		],
+		]
 	}, {
 		// 15 经验金币妖怪，胜利太鼓
 		desc: '退出结算_经验金币妖怪_胜利太鼓',
@@ -439,7 +440,49 @@ export class Func002 implements IFuncOrigin {
 		oper: [
 			[center, 1280, 720, 595, 454, 685, 494, 1000],
 		]
-	},];
+	}, { // 37 通用获得奖励弹窗
+		desc: [1280, 720,
+			[
+				[center, 387, 328, 0xd9c5b0],
+				[center, 504, 293, 0xd9c5b0],
+				[right, 687, 292, 0xd9c5b0],
+				[right, 893, 303, 0xd9c5b0],
+				[center, 490, 260, 0x3e2b23],
+				[right, 830, 259, 0x402d23],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 1042, 176, 1187, 585, 1000],
+		],
+		notForCnt: true,
+	}, { // 38 新的获得奖励弹窗，能显示到三排半
+		desc: [1280, 720,
+			[
+				[center, 387, 328, 0xd9c5b0],
+				[center, 504, 293, 0xd9c5b0],
+				[right, 687, 292, 0xd9c5b0],
+				[right, 893, 303, 0xd9c5b0],
+				[center, 481, 167, 0x412e24],
+				[right, 841, 166, 0x432f25],
+				[center, 555, 155, 0xf1d984],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 1042, 176, 1187, 585, 1000],
+		],
+		notForCnt: true,
+	}, { // 39 雪御前boss
+		desc: [1280, 720, [
+			[center, 1220, 38, 0xe8d3d0],
+			[center, 1212, 31, 0xe9d4d1],
+			[center, 1229, 33, 0xe7d3ce],
+			[center, 1221, 26, 0xa66090],
+			[center, 1222, 54, 0xad5796],
+		]],
+		oper: [[center, 1280, 720, 1215, 32, 1230, 50, 1000]],
+		notForCnt: true,
+	}]
+
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
 		const thisconf = thisScript.scheme.config['2'];
 		if (thisconf && thisconf.rechallenge && thisScript.oper({
@@ -488,7 +531,9 @@ export class Func002 implements IFuncOrigin {
 				thisOperator[11], thisOperator[23], thisOperator[24],
 				thisOperator[26], thisOperator[27], thisOperator[28], thisOperator[29],
 				thisOperator[30], thisOperator[31], thisOperator[33], thisOperator[34],
-				thisOperator[35], thisOperator[36]]
+				thisOperator[35], thisOperator[36], thisOperator[37], thisOperator[38],
+				thisOperator[39],
+			]
 		});
 	}
 }
