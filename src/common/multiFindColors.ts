@@ -1807,7 +1807,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 		]
 	},
 	'勾协判定': {
-		region: [center, 1280, 720, 648, 456, 720, 528],
+		region: [center, 1280, 720, 655, 500, 735, 580],
 		similar: 98,
 		desc: [
 			[1280, 720,
