@@ -34,30 +34,34 @@ export class Func003 implements IFuncOrigin {
 		}]
 	}];
 	operator: IFuncOperatorOrigin[] = [{
-		desc: [
-			1280, 720,
+		desc: [1280, 720,
 			[
-				[right, 798, 93, 0xd1c0bb],
-				[right, 871, 506, 0xa1e1b9],
-				[right, 872, 586, 0xfa7b4e],
-				[center, 484, 136, 0x3e3024],
+				[center, 531, 63, 0xfff3ad],
+				[center, 593, 86, 0xf3e888],
+				[right, 670, 86, 0xf3e5a1],
+				[right, 747, 77, 0xe7cf8f],
+				[center, 504, 107, 0x362519],
+				[right, 768, 601, 0x372c26],
+				[center, 528, 594, 0xd9c8b0],
 			]
 		],
 		oper: [
-			[center, 1280, 720, 785, 80, 815, 110, 1000], // 关闭
-			[center, 1280, 720, 850, 480, 910, 515, 1000], // 接受
-			[center, 1280, 720, 850, 565, 910, 605, 1000], // 拒绝
+			[center, 1280, 720, 791, 81, 816, 109, 1000], // 关闭
+			[center, 1280, 720, 863, 480, 912, 514, 1000], // 接受
+			[center, 1280, 720, 859, 571, 906, 604, 1000], // 拒绝
 		]
 	}, {
 		desc: [1280, 720,
-			[[center, 519, 139, 0xb29375],
+			[
+				[center, 519, 139, 0xb29375],
 				[center, 727, 171, 0xb29375],
 				[center, 855, 518, 0xdc6958],
 				[center, 849, 422, 0x53ae5b],
 				[center, 572, 473, 0x9d7838],
 				[center, 618, 482, 0xdba83a],
 				[center, 668, 510, 0x7746a8],
-				[center, 694, 490, 0xef492e]]
+				[center, 694, 490, 0xef492e]
+			]
 		]
 	}, { // 2 判断_阴阳寮成就页 这些乱七八糟的弹窗统一找个地方放吧，烦死了，暂时先放着:)
 		desc:
@@ -78,11 +82,13 @@ export class Func003 implements IFuncOrigin {
 		]
 	}, { // 3 呱太弹窗
 		desc: [1280, 720,
-			[[center, 568, 225, 0xb7b052],
+			[
+				[center, 568, 225, 0xb7b052],
 				[center, 733, 228, 0x4d4da2],
 				[center, 756, 236, 0xc0c45e],
 				[center, 879, 323, 0x690707],
-				[center, 690, 422, 0xd3ae72]]
+				[center, 690, 422, 0xd3ae72]
+			]
 		],
 		oper: [
 			[center, 1280, 720, 517, 521, 841, 689, 1000],
