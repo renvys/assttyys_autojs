@@ -846,13 +846,10 @@ const multiDetectColors: IMultiDetectColorsOrigin = {
 	'葛叶庭院-町中定位': {
 		desc: [1280, 720,
 			[
-				[right, 1026, 349, 0xffffff],
-				[right, 1022, 365, 0xffffff],
-				[right, 1022, 371, 0xfcfcfc],
-				[right, 1019, 370, 0xffffff],
-				[right, 1024, 365, 0xffffff],
-				[right, 1026, 352, 0xffffff],
-				[right, 1021, 351, 0xffffff],
+				[right, 1028, 345, 0xffffff],
+				[right, 1027, 352, 0xffffff],
+				[right, 1021, 374, 0xffffff],
+				[right, 1016, 370, 0xffffff],
 			]
 		],
 	},
