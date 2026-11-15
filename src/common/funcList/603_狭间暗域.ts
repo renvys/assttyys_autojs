@@ -262,21 +262,27 @@ export class Func603 implements IFuncOrigin {
 				break;
 		}
 		// 记录为数组
+		// 按区域推进：先打完一个区域，再打另一个区域。sort_0 为区域，sort_1 为该区域内的怪物编号
+		// 怪物编号：0 首领，1/2 副将，3/4/5 精英
 		let sort_0 = null;
 		if (thisconf.boss_order === '小到大') {
-			sort_0 = [boss_select_one, boss_select_one, boss_select_one, boss_select_two, boss_select_two, boss_select_two,
-				boss_select_two, boss_select_two, boss_select_one, boss_select_one,
-				boss_select_one, boss_select_two]
+			// 区域一(精英3,4,5 → 副将2,1 → 首领0) → 区域二(精英3,4,5 → 副将2,1 → 首领0)
+			sort_0 = [boss_select_one, boss_select_one, boss_select_one,
+				boss_select_one, boss_select_one, boss_select_one,
+				boss_select_two, boss_select_two, boss_select_two,
+				boss_select_two, boss_select_two, boss_select_two]
 		} else {
-			sort_0 = [boss_select_one, boss_select_two,
-				boss_select_two, boss_select_two, boss_select_one, boss_select_one,
-				boss_select_one, boss_select_one, boss_select_one, boss_select_two, boss_select_two, boss_select_two]
+			// 区域一(首领0 → 副将2,1 → 精英3,4,5) → 区域二(首领0 → 副将2,1 → 精英3,4,5)
+			sort_0 = [boss_select_one, boss_select_one, boss_select_one,
+				boss_select_one, boss_select_one, boss_select_one,
+				boss_select_two, boss_select_two, boss_select_two,
+				boss_select_two, boss_select_two, boss_select_two]
 		}
 		let sort_1 = null;
 		if (thisconf.boss_order === '小到大') {
-			sort_1 = ['3', '4', '5', '3', '4', '5', '2', '1', '2', '1', '0', '0']
+			sort_1 = ['3', '4', '5', '2', '1', '0', '3', '4', '5', '2', '1', '0']
 		} else {
-			sort_1 = ['0', '0', '2', '1', '2', '1', '3', '4', '5', '3', '4', '5']
+			sort_1 = ['0', '2', '1', '3', '4', '5', '0', '2', '1', '3', '4', '5']
 		}
 		// Real:用结算次数获取当前已攻打第几个怪物
 		let Real = thisScript.runTimes['2'] - thisScript.global.runTime_2 - (thisconf.sneak as number)
@@ -309,10 +315,10 @@ export class Func603 implements IFuncOrigin {
 		if ((thisconf.sneak as number) > 0 && thisScript.runTimes['2'] === thisScript.global.runTime_2) {
 			presetStr = thisconf['preset_pair_小蛇'] as string;
 		} else {
-			// 攻打固定次数换预设御魂
+			// 攻打固定次数换预设御魂（按区域推进后，每个区域都会重新经过 精英/副将/首领）
 			const arr = thisconf.boss_order === '小到大'
-				? { 0: '精英', 6: '副将', 10: '首领' }
-				: { 0: '首领', 2: '副将', 6: '精英' };
+				? { 0: '精英', 3: '副将', 5: '首领', 6: '精英', 9: '副将', 11: '首领' }
+				: { 0: '首领', 1: '副将', 3: '精英', 6: '首领', 7: '副将', 9: '精英' };
 			const type = arr[Real];
 			if (type) {
 				presetStr = thisconf[`preset_pair_${type}`] as string
@@ -379,11 +385,12 @@ export class Func603 implements IFuncOrigin {
 		})) {
 			return true;
 		}
+		// 多出来的结算次数，重复攻打两个区域的首领（首领可能要多打一轮）
 		if (Real === 12) {
-			Real = 11;
+			Real = 11; // 区域二首领
 		}
 		if (Real === 13) {
-			Real = 10;
+			Real = 5; // 区域一首领
 		}
 		let curCnt = 0;
 		const maxCount = 3;
@@ -405,10 +412,28 @@ export class Func603 implements IFuncOrigin {
 					return true;
 				}
 			}
+			const areaIndex = sort_0[Real];
+			// 与上一个要打的怪不在同一个区域时，说明发生了区域切换
+			const switchedArea = Real === 0 || sort_0[Real - 1] !== areaIndex;
+
+			// 点击区域
 			thisScript.oper({
 				name: '选择进攻暗域',
-				operator: [{ oper: [thisOperator[3].oper[sort_0[Real] + 6]] }]
+				operator: [{ oper: [thisOperator[3].oper[areaIndex + 6]] }]
 			})
+			if (switchedArea) {
+				// 切换区域后怪物分布页会重新绘制，等页面稳定后再点怪，避免点到蛇魔/小怪
+				sleep(1000);
+				thisScript.keepScreen(false);
+				if (!thisScript.oper({
+					name: '检测_战报页内',
+					operator: [{ desc: thisOperator[3].desc }]
+				})) {
+					// 页面尚未就绪，交给下一次循环重试
+					return true;
+				}
+			}
+			// 点击怪物
 			thisScript.oper({
 				name: '选择进攻暗域',
 				operator: [{ oper: [thisOperator[3].oper[sort_1[Real]]] }]
