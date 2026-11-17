@@ -58,7 +58,7 @@ export class Func009 implements IFuncOrigin {
 		oper: [
 			[center, 1280, 720, 821, 593, 850, 609, 1000],
 		]
-	}, { // 3 解锁阵容_寮突破
+	}, { // 3 解锁阵容_寮突破（寮突破不需要解锁阵容，仅用于界面识别，不再触发点击）
 		desc: [
 			1280, 720,
 			[
@@ -101,9 +101,10 @@ export class Func009 implements IFuncOrigin {
 				operator: [thisOperator[4]]
 			})
 		}
+		// 寮突破不需要解锁阵容（解锁会改变当前预设阵容），只处理个人突破的解锁
 		if (thisScript.oper({
 			name: '突破界面_判断',
-			operator: [thisOperator[2], thisOperator[3]]
+			operator: [thisOperator[2]]
 		})) {
 			return true;
 		}
