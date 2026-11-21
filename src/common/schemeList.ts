@@ -947,6 +947,57 @@ export const deriveGroupSchemeNames = (
 		});
 };
 
+/**
+ * 用前端提交的完整分组快照同步各方案的 groupNames（支持跨组拖拽）。
+ * 只有快照提到当前所有方案并包含它们现有的全部分组时才应用，
+ * 避免旧前端或过期页面提交部分数据导致成员被误删。
+ * 返回是否修改了 schemeList。
+ */
+export const syncSchemeGroupMembership = (
+	schemeList: IScheme[],
+	groups: Array<Partial<GroupSchemeName>> = []
+): boolean => {
+	if (!schemeList.length || !Array.isArray(groups) || groups.length === 0) return false;
+
+	const incomingGroupNames: Record<string, boolean> = {};
+	const membership: Record<string, string[]> = {};
+	groups.forEach(group => {
+		const groupName = typeof group?.groupName === 'string' ? group.groupName.trim() : '';
+		if (!groupName) return;
+		incomingGroupNames[groupName] = true;
+		if (!Array.isArray(group.schemeNames)) return;
+		group.schemeNames.forEach(schemeName => {
+			if (typeof schemeName !== 'string' || !schemeName) return;
+			if (!membership[schemeName]) membership[schemeName] = [];
+			if (!membership[schemeName].includes(groupName)) {
+				membership[schemeName].push(groupName);
+			}
+		});
+	});
+
+	for (const scheme of schemeList) {
+		const nextGroupNames = membership[scheme.schemeName];
+		if (!nextGroupNames || nextGroupNames.length === 0) return false;
+		const currentGroupNames = normalizeSchemeGroupNames(scheme.groupNames);
+		for (const groupName of currentGroupNames) {
+			if (!incomingGroupNames[groupName]) return false;
+		}
+	}
+
+	let changed = false;
+	schemeList.forEach(scheme => {
+		const nextGroupNames = membership[scheme.schemeName];
+		const currentGroupNames = normalizeSchemeGroupNames(scheme.groupNames);
+		const same = currentGroupNames.length === nextGroupNames.length
+			&& currentGroupNames.every(groupName => nextGroupNames.includes(groupName));
+		if (!same) {
+			scheme.groupNames = nextGroupNames.slice();
+			changed = true;
+		}
+	});
+	return changed;
+};
+
 export const toGroupSchemeMetadata = (
 	groups: Array<Partial<GroupSchemeName>> = []
 ): GroupSchemeMetadata[] => {

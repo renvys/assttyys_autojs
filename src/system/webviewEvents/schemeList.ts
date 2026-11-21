@@ -14,6 +14,7 @@ import defaultSchemeList, {
 	isSchemeUuid,
 	normalizeSchemeGroupNames,
 	schemeNameMap,
+	syncSchemeGroupMembership,
 	toGroupSchemeMetadata,
 } from '@/common/schemeList';
 import MyAutomator from '@/system/MyAutomator';
@@ -55,7 +56,13 @@ export default function webviewSchemeList() {
 	});
 
 	webview.on('saveGroupSchemeNames').subscribe(([params, done]) => {
-		const derivedGroups = deriveGroupSchemeNames(readSchemeList(), Array.isArray(params) ? params : []);
+		const groups = Array.isArray(params) ? params : [];
+		const schemeList = readSchemeList();
+		// 前端提交的是完整分组快照，据此同步方案的 groupNames，使跨组拖拽能够持久化。
+		if (syncSchemeGroupMembership(schemeList, groups)) {
+			persistSchemeList(schemeList);
+		}
+		const derivedGroups = deriveGroupSchemeNames(schemeList, groups);
 		store.put('groupSchemeNames', toGroupSchemeMetadata(derivedGroups));
 		done({ error: 0, message: 'success' });
 	});
