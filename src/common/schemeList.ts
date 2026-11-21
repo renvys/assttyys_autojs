@@ -813,8 +813,14 @@ export type GroupSchemeName = {
 	schemeNames: string[]
 }
 
-/** 分组持久化数据只保存展示元信息，成员始终由 schemeList 实时派生。 */
-export type GroupSchemeMetadata = Omit<GroupSchemeName, 'schemeNames'>;
+/**
+ * 分组持久化数据。
+ * groupName/hidden 是展示元信息；schemeNames 只记录组内手动顺序，
+ * 成员归属始终以 schemeList 的 groupNames 为唯一事实源。
+ */
+export type GroupSchemeMetadata = Omit<GroupSchemeName, 'schemeNames'> & {
+	schemeNames?: string[];
+};
 
 export const DEFAULT_SCHEME_GROUP_NAME = '未分组';
 
@@ -871,7 +877,8 @@ export const normalizeSchemeGroupNames = (groupNames?: string[]): string[] => {
 };
 
 /**
- * 以方案列表为唯一事实源生成分组成员；metadata 只控制分组顺序和隐藏状态。
+ * 以方案列表为唯一事实源生成分组成员；metadata 控制分组顺序、隐藏状态和组内顺序。
+ * schemeNames 仅作为排序提示，已不在方案列表中的名字会被忽略。
  */
 export const deriveGroupSchemeNames = (
 	schemeList: IScheme[],
@@ -879,6 +886,7 @@ export const deriveGroupSchemeNames = (
 ): GroupSchemeName[] => {
 	type DerivedGroup = GroupSchemeName & { fromMetadata: boolean };
 	const groups: DerivedGroup[] = [];
+	const orderHints: Record<string, string[]> = {};
 
 	metadata.forEach(item => {
 		const groupName = typeof item?.groupName === 'string' ? item.groupName.trim() : '';
@@ -889,6 +897,15 @@ export const deriveGroupSchemeNames = (
 			schemeNames: [],
 			fromMetadata: true,
 		});
+		if (Array.isArray(item.schemeNames)) {
+			const hints: string[] = [];
+			item.schemeNames.forEach(schemeName => {
+				if (typeof schemeName === 'string' && schemeName && !hints.includes(schemeName)) {
+					hints.push(schemeName);
+				}
+			});
+			orderHints[groupName] = hints;
+		}
 	});
 
 	(schemeList || []).forEach(scheme => {
@@ -913,11 +930,21 @@ export const deriveGroupSchemeNames = (
 
 	return groups
 		.filter(group => group.schemeNames.length > 0)
-		.map(group => ({
-			groupName: group.groupName,
-			hidden: group.hidden,
-			schemeNames: group.schemeNames,
-		}));
+		.map(group => {
+			const hints = orderHints[group.groupName] || [];
+			const schemeNames: string[] = [];
+			hints.forEach(schemeName => {
+				if (group.schemeNames.includes(schemeName)) schemeNames.push(schemeName);
+			});
+			group.schemeNames.forEach(schemeName => {
+				if (!schemeNames.includes(schemeName)) schemeNames.push(schemeName);
+			});
+			return {
+				groupName: group.groupName,
+				hidden: group.hidden,
+				schemeNames,
+			};
+		});
 };
 
 export const toGroupSchemeMetadata = (
@@ -927,7 +954,15 @@ export const toGroupSchemeMetadata = (
 	groups.forEach(group => {
 		const groupName = typeof group?.groupName === 'string' ? group.groupName.trim() : '';
 		if (!groupName || metadata.some(item => item.groupName === groupName)) return;
-		metadata.push({ groupName, hidden: !!group.hidden });
+		const schemeNames: string[] = [];
+		if (Array.isArray(group.schemeNames)) {
+			group.schemeNames.forEach(schemeName => {
+				if (typeof schemeName === 'string' && schemeName && !schemeNames.includes(schemeName)) {
+					schemeNames.push(schemeName);
+				}
+			});
+		}
+		metadata.push({ groupName, hidden: !!group.hidden, schemeNames });
 	});
 	return metadata;
 };
