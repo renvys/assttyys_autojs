@@ -24,6 +24,7 @@ import schedule, { Job } from '@/system/Schedule';
 import { MyFloaty } from '@/system/MyFloaty';
 import ncnnBgyx from '@/system/ncnn/ncnnBgyx';
 import { commonConfigVal } from '@/common/commonConfig';
+import { perfLogLine } from '@/common/perfLog';
 
 /**
  * 脚本对象，一个程序只能有一个
@@ -389,10 +390,16 @@ export class Script {
 	 */
 	findMultiColor(key: string, inRegion?: any, multiRegion?: boolean, noLog?: boolean, openmisalignedMatch?: boolean) {
 		this.initRedList();
+		const conf = this.multiFindColors && this.multiFindColors[key];
+		if (!conf) {
+			// 运行中的构建可能没有这个 key（例如刚新增取色但未重新加载项目），避免直接崩溃
+			console.log(`[findMultiColor] 未找到多点找色配置: ${key}`);
+			return null;
+		}
 		if (!multiRegion) {
-			const region = inRegion || this.multiFindColors[key].region;
-			const desc = this.multiFindColors[key].desc;
-			const similar = this.multiFindColors[key].similar || this.scheme.commonConfig.multiColorSimilar
+			const region = inRegion || conf.region;
+			const desc = conf.desc;
+			const similar = conf.similar || this.scheme.commonConfig.multiColorSimilar
 			const misalignedMatch = openmisalignedMatch !== undefined ? openmisalignedMatch : true;
 			for (let i = 0; i < desc.length; i++) {
 				const item = desc[i];
@@ -418,8 +425,8 @@ export class Script {
 		} else {
 			for (const inRegion2 of inRegion) {
 				const region = inRegion2;
-				const desc = this.multiFindColors[key].desc;
-				const similar = this.multiFindColors[key].similar || this.scheme.commonConfig.multiColorSimilar
+				const desc = conf.desc;
+				const similar = conf.similar || this.scheme.commonConfig.multiColorSimilar
 				for (let i = 0; i < desc.length; i++) {
 					const item = desc[i];
 					const point = this.helperBridge.helper.FindMultiColor(region[0], region[1], region[2], region[3], item, similar, true);
@@ -454,9 +461,14 @@ export class Script {
 	*/
 	findMultiColorEx(key, inRegion?): Point[] {
 		this.initRedList();
-		const region = inRegion || this.multiFindColors[key].region;
-		const desc = this.multiFindColors[key].desc;
-		const similar = this.multiFindColors[key].similar || this.scheme.commonConfig.multiColorSimilar;
+		const conf = this.multiFindColors && this.multiFindColors[key];
+		if (!conf) {
+			console.log(`[findMultiColorEx] 未找到多点找色配置: ${key}`);
+			return [];
+		}
+		const region = inRegion || conf.region;
+		const desc = conf.desc;
+		const similar = conf.similar || this.scheme.commonConfig.multiColorSimilar;
 		const ret = [];
 		for (let i = 0; i < desc.length; i++) {
 			const item = desc[i];
@@ -612,12 +624,33 @@ export class Script {
 			try {
 				// eslint-disable-next-line no-constant-condition
 				while (true) {
+					const loopStart = Date.now();
 					self.keepScreen(false);
+					const screenCost = Date.now() - loopStart;
+					if (screenCost >= 80) {
+						const line = `[perf] keepScreen ${screenCost}ms`;
+						console.log(line);
+						perfLogLine(line);
+					}
 					for (let i = 0; i < self.scheme.funcList.length; i++) {
-						if (self.oper(self.scheme.funcList[i], undefined)) {
+						const funcStart = Date.now();
+						const handled = self.oper(self.scheme.funcList[i], undefined);
+						const funcCost = Date.now() - funcStart;
+						if (funcCost >= 120) {
+							const line = `[perf] func ${self.scheme.funcList[i].id} ${funcCost}ms handled=${handled}`;
+							console.log(line);
+							perfLogLine(line);
+						}
+						if (handled) {
 							self.currentDate = new Date();
 							break;
 						}
+					}
+					const loopCost = Date.now() - loopStart;
+					if (loopCost >= 200) {
+						const line = `[perf] loop ${loopCost}ms`;
+						console.log(line);
+						perfLogLine(line);
 					}
 					sleep(+self.scheme.commonConfig.loopDelay);
 				}
@@ -808,6 +841,7 @@ export class Script {
 		} else {
 			for (let id = 0; id < operator.length; id++) {
 				const item = operator[id];
+				if (!item) continue;
 				let rs;
 				if (item.desc && item.desc.length) {
 					if (typeof item.desc === 'string') {
@@ -877,6 +911,7 @@ export class Script {
 		const operator = currFunc.operator || []; // 需要计算的坐标通过operater传进去使用
 		for (let id = 0; id < operator.length; id++) {
 			const item = operator[id];
+			if (!item) continue;
 			if (item.desc) {
 				let res = null;
 				if (typeof item.desc === 'string') {

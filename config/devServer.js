@@ -34,7 +34,10 @@ app.use(async (ctx, next) => {
         }
         ctx.body = JSON.stringify(fileList);
     } else if (ctx.path === '/project.json') {
-        ctx.body = fs.createReadStream('project.json');
+        // DebugPlayer 调试加载时直接运行本地构建，避免 main.js 又去下载线上 Release
+        const project = JSON.parse(fs.readFileSync('project.json', 'utf8'));
+        project.main = 'dist/auto.js';
+        ctx.body = project;
     } else if (ctx.path === '/___dev_log') {
         const { t, m, d } = ctx.request.body;
         if (['info', 'log', 'trace', 'debug', 'error'].includes(m));

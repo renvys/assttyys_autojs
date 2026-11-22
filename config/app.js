@@ -30,6 +30,13 @@ const router = new Router();
         router.all(path, async (ctx) => {
             const now = new Date();
             console.log(`[${now.toLocaleDateString()} ${now.toLocaleTimeString()}] load: ${path}`);
+            if (path === '/project.json') {
+                // DebugPlayer 调试加载时直接运行本地构建，避免 main.js 又去下载线上 Release
+                const project = JSON.parse(await fsPromise.readFile(__dirname + '/../project.json', 'utf8'));
+                project.main = 'dist/auto.js';
+                ctx.body = project;
+                return;
+            }
             ctx.body = await fsPromise.readFile(__dirname + '/..' + path);
         });
     });

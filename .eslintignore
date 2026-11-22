@@ -1,0 +1,2 @@
+# 独立编译的 Node 开发工具，不参与 Auto.js 包构建
+tools/autoSelect/

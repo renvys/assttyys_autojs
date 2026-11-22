@@ -1,0 +1,28 @@
+{
+  "dev": [1280, 720],
+  "region": [0, 0, 1279, 719],
+  "similar": 93,
+  "gridStep": 4,
+  "border": 8,
+  "regionPadding": 2,
+  "maxPoints": 8,
+  "minDistance": 80,
+  "states": [
+    {
+      "name": "六道觉_选buff界面",
+      "region": [150, 300, 1130, 650],
+      "positives": "samples/323/buff/pos",
+      "negatives": "samples/323/buff/neg",
+      "options": {
+        "maxPoints": 8,
+        "minDistance": 80
+      }
+    },
+    {
+      "name": "六道觉_开始",
+      "region": [1080, 560, 1260, 700],
+      "positives": "samples/323/start/pos",
+      "negatives": "samples/323/start/neg"
+    }
+  ]
+}

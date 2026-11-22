@@ -7,6 +7,7 @@ const Unpack = require('./devUnpack')
 const ESLintWebpackPlugin = require('eslint-webpack-plugin')
 const DevServer = require('./devServer')
 const CopyWebpackPlugin = require('copy-webpack-plugin');
+const TerserPlugin = require('terser-webpack-plugin');
 const fs = require('fs');
 
 
@@ -53,6 +54,19 @@ const config = {
         // libraryTarget: "commonjs2"
     },
     target: "node",
+    optimization: {
+        minimizer: [
+            new TerserPlugin({
+                terserOptions: {
+                    // Rhino 不认 U+00B7 等标识符字符；强制所有对象 key 带引号，
+                    // 避免压缩器把含中文/间隔号的 key 输出成裸标识符。
+                    // TerserPlugin 4 走 output，Terser 5 走 format，两个都写。
+                    output: { quote_keys: true },
+                    format: { quote_keys: true },
+                },
+            }),
+        ],
+    },
     module: {
         rules: [
             {

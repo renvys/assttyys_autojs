@@ -34,20 +34,24 @@ export class Func003 implements IFuncOrigin {
 		}]
 	}];
 	operator: IFuncOperatorOrigin[] = [{
-		desc: [
-			1280, 720,
+		// 源仓库（upstream/master）的悬赏协作识别取色
+		desc: [1280, 720,
 			[
-				[right, 798, 93, 0xd1c0bb],
-				[right, 871, 506, 0xa1e1b9],
-				[right, 872, 586, 0xfa7b4e],
-				[center, 484, 136, 0x3e3024],
+				[center, 533, 64, 0xe7c383],
+				[right, 810, 89, 0xd1bfb9],
+				[right, 684, 440, 0xd1c5b0],
+				[center, 540, 555, 0xd7c8b1],
+				[center, 517, 118, 0xbfa992],
+				[right, 889, 488, 0x73eba6],
+				[right, 874, 585, 0xf67246],
 			]
 		],
 		oper: [
-			[center, 1280, 720, 785, 80, 815, 110, 1000], // 关闭
-			[center, 1280, 720, 850, 480, 910, 515, 1000], // 接受
-			[center, 1280, 720, 850, 565, 910, 605, 1000], // 拒绝
-			[center, 1280, 720, 520, 45, 570, 90, 1000], // OCR识别悬赏协作标题
+			[center, 1280, 720, 790, 71, 834, 111, 1000], // 关闭
+			[center, 1280, 720, 848, 475, 902, 526, 1000], // 接受
+			[center, 1280, 720, 846, 568, 898, 616, 1000], // 拒绝
+			// 本地 OCR 识别悬赏协作标题区域（保留备用，暂时注释）
+			// [center, 1280, 720, 520, 45, 570, 90, 1000],
 		]
 	}, {
 		desc: [1280, 720,
@@ -150,14 +154,75 @@ export class Func003 implements IFuncOrigin {
 			sleep(3000);
 			return true;
 		}
-		let coopInviteChecked: boolean | undefined;
-		const isCoopInvite = () => {
-			if (coopInviteChecked === undefined) {
-				coopInviteChecked = thisScript.findText('协', 0, thisOperator[0].oper[3], '包含').length > 0;
-			}
-			return coopInviteChecked;
-		};
-		if (thisconf.switch && thisconf.type === '接受' && isCoopInvite()) {
+		// ===== 本地 OCR 识别（保留备用，暂时注释；当前使用源仓库多点比色识别）=====
+		// let coopInviteChecked: boolean | undefined;
+		// const isCoopInvite = () => {
+		// 	if (coopInviteChecked === undefined) {
+		// 		try {
+		// 			coopInviteChecked = thisScript.findText('协', 0, thisOperator[0].oper[3], '包含').length > 0;
+		// 		} catch (e) {
+		// 			// 脚本停止/切换时 OCR 可能被中断，避免 InterruptedException 冒到日志
+		// 			console.log('悬赏协作 OCR 异常: ' + e);
+		// 			coopInviteChecked = false;
+		// 		}
+		// 	}
+		// 	return coopInviteChecked;
+		// };
+		// if (thisconf.switch && thisconf.type === '接受' && isCoopInvite()) {
+		// 	if (thisScript.findMultiColor('勾协判定')) {
+		// 		thisScript.oper({
+		// 			id: 3,
+		// 			name: '悬赏协作_' + thisconf.type + '_勾协',
+		// 			operator: [{
+		// 				oper: [thisOperator[0].oper[1]]
+		// 			}]
+		// 		})
+		// 		thisScript.doPush(thisScript, { text: '接受到勾协，请确认是否影响到主体方案', before() { thisScript.myToast('正在上传数据'); } });
+		// 		return true;
+		// 	} else if (thisScript.oper({
+		// 		name: '悬赏协作_' + thisconf.type + '_非勾协关闭',
+		// 		operator: [{
+		// 			oper: [thisOperator[0].oper[0]]
+		// 		}]
+		// 	}, 0)) {
+		// 		return true;
+		// 	}
+		// } else {
+		// 	if (isCoopInvite()) {
+		// 		return thisScript.oper({
+		// 			id: 3,
+		// 			name: '悬赏协作_' + thisconf.type,
+		// 			operator: [{
+		// 				oper: [thisOperator[0].oper[{
+		// 					'关闭': 0,
+		// 					'接受': 1,
+		// 					'拒绝': 2
+		// 				}[thisconf.type as string]]]
+		// 			}]
+		// 		});
+		// 	}
+		// 	return thisScript.oper({
+		// 		id: 3,
+		// 		name: '邀约协作_' + (thisconf.yytype || '关闭'),
+		// 		operator: [{
+		// 			desc: thisOperator[5].desc,
+		// 			oper: [thisOperator[5].oper[{
+		// 				'关闭': 0,
+		// 				'接受': 1,
+		// 				'拒绝': 2
+		// 			}[(thisconf.yytype || '关闭') as string]]]
+		// 		}]
+		// 	});
+		// }
+
+		// ===== 源仓库识别：多点比色 =====
+		if (thisconf.switch && thisconf.type === '接受' && thisScript.oper({
+			id: 3,
+			name: '悬赏协作',
+			operator: [{
+				desc: [thisOperator[0].desc[0] as [number, number, number, number]]
+			}]
+		})) {
 			if (thisScript.findMultiColor('勾协判定')) {
 				thisScript.oper({
 					id: 3,
@@ -171,26 +236,25 @@ export class Func003 implements IFuncOrigin {
 			} else if (thisScript.oper({
 				name: '悬赏协作_' + thisconf.type + '_非勾协关闭',
 				operator: [{
+					desc: thisOperator[0].desc,
 					oper: [thisOperator[0].oper[0]]
 				}]
 			}, 0)) {
 				return true;
 			}
 		} else {
-			if (isCoopInvite()) {
-				return thisScript.oper({
-					id: 3,
-					name: '悬赏协作_' + thisconf.type,
-					operator: [{
-						oper: [thisOperator[0].oper[{
-							'关闭': 0,
-							'接受': 1,
-							'拒绝': 2
-						}[thisconf.type as string]]]
-					}]
-				});
-			}
 			return thisScript.oper({
+				id: 3,
+				name: '悬赏协作_' + thisconf.type,
+				operator: [{
+					desc: thisOperator[0].desc,
+					oper: [thisOperator[0].oper[{
+						'关闭': 0,
+						'接受': 1,
+						'拒绝': 2
+					}[thisconf.type as string]]]
+				}]
+			}) || thisScript.oper({
 				id: 3,
 				name: '邀约协作_' + (thisconf.yytype || '关闭'),
 				operator: [{

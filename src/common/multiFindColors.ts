@@ -1284,7 +1284,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 		]
 	},
 	'金币妖怪_判断挑战次数是否用完': {
-		region: [left, 1280, 720, 0, 0, 1280, 720],
+		region: [left, 1280, 720, 150, 220, 1100, 620],
 		desc: [
 			[1280, 720,
 				[
@@ -2058,6 +2058,222 @@ const multiFindColors: IMultiFindColorsOrigin = {
 			],
 		]
 	},
+	// TODO(六道觉): 六道觉事件图标（神秘/混沌/鏖战等），位置不固定，按 1280x720 取色后填入 desc
+	'六道觉_事件': {
+		region: [left, 1280, 720, 79, 230, 1020, 580],
+		desc: []
+	},
+	// TODO(六道觉): 六道觉商店中可购买 buff 的图标/按钮，取色后填入 desc
+	'六道觉_购买buff': {
+		region: [center, 1280, 720, 0, 0, 1279, 719],
+		desc: []
+	},
+	// 六道觉安全buff图标（只取图标色，不取文字色）：当前三项为 六道化身 / 洞察之力 / 极道轰炸
+	// 新增安全buff时，在 323 的 safeBuffNames 配置名称，并在此添加 key 为 `六道觉_buff_<名称>` 的多点找色；
+	// region 覆盖三张奖励卡片的图标区域，第一点取图标中心附近，保证命中点 x 落在对应卡片区间：<350 / 350~620 / >620。
+	'六道觉_buff_六道化身': {
+		region: [left, 1280, 720, 60, 140, 900, 260],
+		similar: 88,
+		desc: [
+			[
+				1280, 720,
+				[
+					[center, 220, 190, 0x27a1ff],
+					[center, 240, 215, 0xb7b024],
+					[center, 205, 200, 0xd35c6d],
+					[center, 190, 170, 0x984f8e],
+					[center, 245, 180, 0x060203],
+					[center, 230, 225, 0xabaa0b],
+				]
+			],
+		]
+	},
+	'六道觉_buff_洞察之力': {
+		region: [left, 1280, 720, 60, 140, 900, 260],
+		similar: 88,
+		desc: [
+			[
+				1280, 720,
+				[
+					[center, 495, 195, 0xf7b43d],
+					[center, 480, 205, 0xffff6a],
+					[center, 495, 210, 0xc03a11],
+					[center, 510, 205, 0x903011],
+					[center, 520, 190, 0xbc5e25],
+					[center, 460, 215, 0x985929],
+				]
+			],
+		]
+	},
+	'六道觉_buff_极道轰炸': {
+		region: [left, 1280, 720, 60, 140, 900, 260],
+		similar: 88,
+		desc: [
+			[
+				1280, 720,
+				[
+					[center, 765, 195, 0xe0b6c1],
+					[center, 750, 210, 0xd78499],
+					[center, 735, 195, 0x8a3158],
+					[center, 795, 195, 0xc54b66],
+					[center, 765, 230, 0xa34c46],
+					[center, 785, 175, 0x6b5d84],
+				]
+			],
+		]
+	},
+	// 以下为黑名单/注意buff：只取图标色，不取文字色（六道·混沌/六道·偶戏/妖力化身/攻击加成/炽焚天火/背水一战均已取色）
+	'六道觉_buff_六道混沌': {
+		region: [left, 1280, 720, 60, 140, 900, 260],
+		similar: 88,
+		desc: [
+			[
+				1280, 720,
+				[
+					[center, 786, 208, 0xffffff],
+					[center, 728, 198, 0x773884],
+					[center, 768, 212, 0x3f0466],
+					[center, 736, 182, 0xb04ab7],
+					[center, 748, 222, 0x680299],
+					[center, 774, 178, 0xff93ff],
+					[center, 750, 172, 0xe372d7],
+				]
+			],
+		]
+	},
+	'六道觉_buff_六道偶戏': {
+		region: [left, 1280, 720, 60, 140, 900, 260],
+		similar: 88,
+		desc: [
+			[
+				1280, 720,
+				[
+					[center, 252, 218, 0x082428],
+					[center, 226, 176, 0x2b0000],
+					[center, 206, 178, 0x294f67],
+					[center, 202, 192, 0x7a2648],
+					[center, 224, 218, 0x0b6c88],
+					[center, 222, 196, 0x94060d],
+				]
+			],
+		]
+	},
+	// 攻击加成：仅用于识别后按黑名单排除，不要选
+	'六道觉_buff_攻击加成': {
+		region: [left, 1280, 720, 60, 140, 900, 260],
+		similar: 88,
+		desc: [
+			[
+				1280, 720,
+				[
+					[center, 760, 205, 0xf7d78e],
+					[center, 765, 215, 0xf9efb8],
+					[center, 755, 205, 0xfada8d],
+					[center, 750, 200, 0xdfc181],
+					[center, 775, 200, 0xe2c281],
+					[center, 770, 195, 0xc5ab7a],
+					[center, 760, 210, 0x302c20],
+					[center, 770, 205, 0x373327],
+				]
+			],
+		]
+	},
+	'六道觉_buff_妖力化身': {
+		region: [left, 1280, 720, 60, 140, 900, 260],
+		similar: 88,
+		desc: [
+			[
+				1280, 720,
+				[
+					[center, 508, 199, 0xffffff],
+					[center, 490, 162, 0x302b20],
+					[center, 490, 178, 0xffff9a],
+					[center, 514, 185, 0xffffca],
+					[center, 471, 213, 0xab742f],
+					[center, 470, 189, 0x68391c],
+					[center, 519, 210, 0x82572b],
+					[center, 511, 214, 0xd89e4e],
+				]
+			],
+		]
+	},
+	'六道觉_buff_炽焚天火': {
+		region: [left, 1280, 720, 60, 140, 900, 260],
+		similar: 88,
+		desc: [
+			[
+				1280, 720,
+				[
+					[center, 478, 188, 0x5b0e0e],
+					[center, 489, 207, 0x7b291e],
+					[center, 516, 186, 0x230510],
+					[center, 479, 223, 0xffd680],
+					[center, 512, 223, 0xff925c],
+					[center, 502, 215, 0xea5853],
+					[center, 475, 175, 0xa73a39],
+					[center, 462, 219, 0xffffa4],
+				]
+			],
+		]
+	},
+	'六道觉_buff_背水一战': {
+		region: [left, 1280, 720, 60, 140, 900, 260],
+		similar: 88,
+		desc: [
+			[
+				1280, 720,
+				[
+					[center, 520, 188, 0x551a0e],
+					[center, 480, 191, 0xffa849],
+					[center, 507, 216, 0xffea77],
+					[center, 489, 224, 0xbc471b],
+					[center, 491, 210, 0x832f14],
+					[center, 495, 178, 0xff7f34],
+					[center, 519, 178, 0x310a03],
+					[center, 467, 199, 0xd6662c],
+					[center, 502, 223, 0xffff9e],
+				]
+			],
+		]
+	},
+	'六道觉_六道轰雷': {
+		region: [left, 1280, 720, 60, 140, 900, 260],
+		similar: 88,
+		desc: [
+			[
+				1280, 720,
+				[
+					[center, 225, 200, 0xfae490],
+					[center, 225, 190, 0xe5ab57],
+					[center, 205, 160, 0xbe74b9],
+					[center, 265, 205, 0xdc89dd],
+					[center, 265, 210, 0xd994da],
+					[center, 245, 210, 0xd5f5f5],
+					[center, 215, 210, 0xc7ddde],
+					[center, 185, 220, 0xa8e6f4],
+				]
+			],
+		]
+	},
+	'六道觉_商店_轰雷': {
+		region: [left, 1280, 720, 700, 80, 1180, 720],
+		similar: 88,
+		desc: [
+			[
+				1280, 720,
+				[
+					[center, 759, 136, 0x1e1e1e],
+					[center, 763, 164, 0xbfbfa7],
+					[center, 786, 163, 0x7797a9],
+					[center, 780, 162, 0xfffff9],
+					[center, 751, 148, 0x6f6f6f],
+					[center, 765, 147, 0x4d372c],
+					[center, 750, 170, 0xca71e0],
+					[center, 797, 170, 0xae6cb4],
+				]
+			],
+		]
+	},
 	'返回图标': {
 		region: [left, 1280, 720, 0, 0, 253, 145],
 		desc: [[ // 准备界面、站斗界面的左上角返回图标
@@ -2587,7 +2803,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 		]]
 	},
 	'寻香行三层': {
-		region: [left, 1280, 720, 0, 0, 1280, 720],
+		region: [left, 1280, 720, 150, 220, 1100, 620],
 		desc: [[
 			1280, 720,
 			[
@@ -2603,7 +2819,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 		]]
 	},
 	'寻香行五层': {
-		region: [left, 1280, 720, 0, 0, 1280, 720],
+		region: [left, 1280, 720, 150, 220, 1100, 620],
 		desc: [[
 			1280, 720,
 			[
@@ -2620,7 +2836,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 		]]
 	},
 	'道馆集结': { // 地图里面的集结
-		region: [left, 1280, 720, 0, 0, 1280, 720],
+		region: [left, 1280, 720, 150, 220, 1100, 620],
 		desc: [[1280, 720,
 			[
 				[center, 512, 353, 0xffffb6],
@@ -2635,7 +2851,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 		]]
 	},
 	'御灵票': {
-		region: [left, 1280, 720, 0, 0, 1280, 720],
+		region: [left, 1280, 720, 150, 220, 1100, 620],
 		desc: [[
 			1280, 720,
 			[
@@ -2649,7 +2865,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 		]],
 	},
 	'契灵盘': {
-		region: [left, 1280, 720, 0, 0, 1280, 720],
+		region: [left, 1280, 720, 150, 220, 1100, 620],
 		desc: [[
 			1280, 720,
 			[
@@ -2664,7 +2880,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 		similar: 95
 	},
 	'rongYu_lanPiao': {
-		region: [left, 1280, 720, 0, 0, 1280, 720],
+		region: [left, 1280, 720, 150, 220, 1100, 620],
 		similar: 95,
 		desc: [[
 			1280, 720,
@@ -2679,7 +2895,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 		]],
 	},
 	'rongYu_heiSui': {
-		region: [left, 1280, 720, 0, 0, 1280, 720],
+		region: [left, 1280, 720, 150, 220, 1100, 620],
 		desc: [[
 			1280, 720,
 			[
@@ -2693,7 +2909,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 		]],
 	},
 	'rongYu_sePi': {
-		region: [left, 1280, 720, 0, 0, 1280, 720],
+		region: [left, 1280, 720, 150, 220, 1100, 620],
 		desc: [[
 			1280, 720,
 			[
@@ -2707,7 +2923,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 		]],
 	},
 	'rongYu_fengMo': {
-		region: [left, 1280, 720, 0, 0, 1280, 720],
+		region: [left, 1280, 720, 150, 220, 1100, 620],
 		desc: [[
 			1280, 720,
 			[
@@ -2722,7 +2938,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 		]],
 	},
 	'rongYu_qingJiGui': {
-		region: [left, 1280, 720, 0, 0, 1280, 720],
+		region: [left, 1280, 720, 150, 220, 1100, 620],
 		desc: [[
 			1280, 720,
 			[
@@ -2736,7 +2952,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 		]],
 	},
 	'黄色确认按钮': {
-		region: [left, 1280, 720, 0, 0, 1280, 720],
+		region: [left, 1280, 720, 150, 220, 1100, 620],
 		desc: [[
 			1280, 720,
 			[
@@ -2809,7 +3025,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 		]],
 	},
 	'百鬼夜行_BUFF': {
-		region: [left, 1280, 720, 0, 0, 1280, 720],
+		region: [left, 1280, 720, 150, 220, 1100, 620],
 		desc: [[ // 豆子获取
 			1280, 720,
 			[
@@ -2842,7 +3058,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 		]],
 	},
 	'晴明扇子': {
-		region: [left, 1280, 720, 0, 0, 1280, 720],
+		region: [left, 1280, 720, 150, 220, 1100, 620],
 		desc: [[1280, 720,
 			[
 				[right, 867, 261, 0xffefb1],
@@ -2854,7 +3070,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 		]]
 	},
 	'剧情三点': {
-		region: [left, 1280, 720, 0, 0, 1280, 720],
+		region: [left, 1280, 720, 150, 220, 1100, 620],
 		desc: [[
 			1280, 720,
 			[
@@ -3022,7 +3238,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 		]],
 	},
 	'大神_福利中心': {
-		region: [left, 1280, 720, 0, 0, 1280, 720],
+		region: [left, 1280, 720, 150, 220, 1100, 620],
 		desc: [[
 			1280, 720,
 			[
@@ -3049,7 +3265,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 		],]
 	},
 	'剧情三点_普': {
-		region: [left, 1280, 720, 0, 0, 1280, 720],
+		region: [left, 1280, 720, 150, 220, 1100, 620],
 		desc: [[
 			1280, 720,
 			[
@@ -3084,7 +3300,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 		similar: 90
 	},
 	'剧情三点_战': {
-		region: [left, 1280, 720, 0, 0, 1280, 720],
+		region: [left, 1280, 720, 150, 220, 1100, 620],
 		desc: [[
 			1280, 720,
 			[
@@ -3097,7 +3313,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 		],]
 	},
 	'剧情黄眼': {
-		region: [left, 1280, 720, 0, 0, 1280, 720],
+		region: [left, 1280, 720, 150, 220, 1100, 620],
 		desc: [[
 			1280, 720,
 			[
@@ -3110,7 +3326,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 		],]
 	},
 	'剧情问号': {
-		region: [left, 1280, 720, 0, 0, 1280, 720],
+		region: [left, 1280, 720, 150, 220, 1100, 620],
 		desc: [[1280, 720,
 			[
 				[right, 1115, 270, 0xdcd2ce],

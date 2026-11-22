@@ -71,3 +71,8 @@ deploy.ps1
 
 # next.js build output
 .next
+
+# auto-select tool
+tools/autoSelect/dist/
+tools/autoSelect/out/
+tools/autoSelect/samples/

@@ -87,6 +87,34 @@ export type globalRootType = {
 	shangyushe: boolean;//    是否已上过预设
 	d6Loop: number;//     椒图事件点击循环数
 	d6RouFeng: number;//     椒图柔风实时buff数
+	d6jueLoop: number;//     六道觉事件点击循环数
+	d6jueStarted: boolean;// 六道觉是否已由脚本点击「开启」进入本局
+	d6jueStartPrompted: boolean;// 六道觉未开启时是否已提示
+	d6jueCantClear: boolean;// 六道觉本局已判定无法通关（T）
+	d6jueCoreBuff: number;// 六道觉核心buff实时层数
+	d6jueTimes: number;//    六道觉通关次数
+	d6jueBegin: number;//    六道觉首次开始时间
+	d6jueCurrentBegin: number;// 六道觉本局开始时间
+	d6jueMapLogTime: number;// 六道觉小地图节点日志上次输出时间
+	d6jueMapClickTime: number;// 六道觉主地图节点上次点击时间
+	d6jueLastMapSig: string;// 六道觉上次点击时的节点行签名（防同一屏重复点击）
+	d6jueLastMapSigTime: number;// 六道觉上次点击时的节点行签名时间
+	d6jueBloomCheckpoint: number;// 六道觉已看到的绽放检查点（0=未到5，1=5，2=10，3=15）
+	d6jueSkillCount: number;// 六道觉舞技强化次数
+	d6jueLeiLevel: number;// 六道觉六道轰雷等级
+	d6jueOtherBuffSelected: boolean;// 六道觉是否选择过其他buff（boss战前需卸载）
+	d6juePowerLevel: number;// 六道觉力量等级，初始为0
+	d6jueYaoLevel: number;// 六道觉妖力化身等级（不要到2级）
+	d6jueBeishuiLevel: number;// 六道觉背水一战等级（不要到2级）
+	d6jueChifenLevel: number;// 六道觉炽焚天火等级（需在轰雷后拿）
+	d6jueShopRefresh: number;// 六道觉商店本次已刷新次数
+	d6jueShopBuyPending: boolean;// 六道觉已点购买，等待确认结果
+	d6jueShopBuyStage: number;// 六道觉购买阶段：1=等确认弹窗，2=已点确认等待校验
+	d6jueShopBuyTime: number;// 六道觉购买阶段开始时间
+	d6jueWanxiangling: number;// 六道觉万相铃计算（用于商店决策）
+	d6jueWanxianglingPending: number;// 六道觉待结算万相铃
+	d6jueStepLeft: number;// 六道觉剩余步数（孔雀国共20步）
+	d6jueHuanxiShop: number;// 六道觉本局主动唤息找商店次数
 	upYuHun: boolean;//      强化御魂记录界面次数
 	upYuHunIni: boolean;//      强化御魂初设置
 	bgyxLastCapture: number; // 上次截图的时间戳
@@ -238,6 +266,34 @@ export const globalRoot: globalRootType = {
 	shangyushe: true,
 	d6Loop: 0,
 	d6RouFeng: 1,
+	d6jueLoop: 0,
+	d6jueStarted: false,
+	d6jueStartPrompted: false,
+	d6jueCantClear: false,
+	d6jueCoreBuff: 0,
+	d6jueTimes: 0,
+	d6jueBegin: 0,
+	d6jueCurrentBegin: 0,
+	d6jueMapLogTime: 0,
+	d6jueMapClickTime: 0,
+	d6jueLastMapSig: '',
+	d6jueLastMapSigTime: 0,
+	d6jueBloomCheckpoint: 0,
+	d6jueSkillCount: 0,
+	d6jueLeiLevel: 0,
+	d6jueOtherBuffSelected: false,
+	d6juePowerLevel: 0,
+	d6jueYaoLevel: 0,
+	d6jueBeishuiLevel: 0,
+	d6jueChifenLevel: 0,
+	d6jueShopRefresh: 0,
+	d6jueShopBuyPending: false,
+	d6jueShopBuyStage: 0,
+	d6jueShopBuyTime: 0,
+	d6jueWanxiangling: 0,
+	d6jueWanxianglingPending: 0,
+	d6jueStepLeft: 20,
+	d6jueHuanxiShop: 0,
 	upYuHun: false,
 	upYuHunIni: true,
 	bgyxLastCapture: undefined,
