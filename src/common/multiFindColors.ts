@@ -2125,7 +2125,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 	// 以下为黑名单/注意buff：只取图标色，不取文字色（六道·混沌/六道·偶戏/妖力化身/攻击加成/炽焚天火/背水一战均已取色）
 	'六道觉_buff_六道混沌': {
 		region: [left, 1280, 720, 60, 140, 900, 260],
-		similar: 88,
+		similar: 80,
 		desc: [
 			[
 				1280, 720,
@@ -2143,7 +2143,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 	},
 	'六道觉_buff_六道偶戏': {
 		region: [left, 1280, 720, 60, 140, 900, 260],
-		similar: 88,
+		similar: 80,
 		desc: [
 			[
 				1280, 720,
@@ -2159,9 +2159,10 @@ const multiFindColors: IMultiFindColorsOrigin = {
 		]
 	},
 	// 攻击加成：仅用于识别后按黑名单排除，不要选
+	// similar 92：80 会在「命中加成/防御加成/抵抗加成」三张未知卡上误命中第一张
 	'六道觉_buff_攻击加成': {
 		region: [left, 1280, 720, 60, 140, 900, 260],
-		similar: 88,
+		similar: 92,
 		desc: [
 			[
 				1280, 720,
@@ -2180,7 +2181,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 	},
 	'六道觉_buff_妖力化身': {
 		region: [left, 1280, 720, 60, 140, 900, 260],
-		similar: 88,
+		similar: 80,
 		desc: [
 			[
 				1280, 720,
@@ -2218,7 +2219,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 	},
 	'六道觉_buff_背水一战': {
 		region: [left, 1280, 720, 60, 140, 900, 260],
-		similar: 88,
+		similar: 80,
 		desc: [
 			[
 				1280, 720,
@@ -2239,17 +2240,17 @@ const multiFindColors: IMultiFindColorsOrigin = {
 	'六道觉_六道轰雷': {
 		region: [left, 1280, 720, 60, 140, 900, 260],
 		similar: 88,
+		// 1 级/2 级共用同一组锚点：不取等级角标覆盖的顶部区域，
+		// 只保留雷心黄色、右侧紫环、白色雷光和左下青色雷光。
+		// 1 级与 2 级的图标本体相同，等级只多一个角标，不能为 2 级另做一套。
 		desc: [
 			[
 				1280, 720,
 				[
 					[center, 225, 200, 0xfae490],
-					[center, 225, 190, 0xe5ab57],
-					[center, 205, 160, 0xbe74b9],
 					[center, 265, 205, 0xdc89dd],
 					[center, 265, 210, 0xd994da],
 					[center, 245, 210, 0xd5f5f5],
-					[center, 215, 210, 0xc7ddde],
 					[center, 185, 220, 0xa8e6f4],
 				]
 			],

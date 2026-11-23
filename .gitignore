@@ -76,3 +76,7 @@ deploy.ps1
 tools/autoSelect/dist/
 tools/autoSelect/out/
 tools/autoSelect/samples/
+
+# Local d6jue debug logs / fixtures / test tooling
+.tmp/
+tools/d6jueMap/test/

@@ -1,10 +1,14 @@
 import { IFuncOrigin, IFuncOperatorOrigin, IFuncOperator } from '@/interface/IFunc';
 import { Script } from '@/system/script';
 import { analyzeD6Map, pickD6MapChoice, d6MapSlotIndex, d6MapColName, D6_MINIMAP_DEV_REGION, warmUpD6Map, D6MapState } from '@/common/d6jueMap';
+import { detectD6BannerAnchor, downsampleD6BannerImage, D6BannerAnchor } from '@/common/d6jueBanner';
+import { recognizeD6StepCounter, D6StepCounterResult } from '@/common/d6jueStepCounter';
+import { D6StepTracker, D6StepCounterUpdate } from '@/common/d6jueStepTracker';
 import { bitmapToImageData } from '@/common/autoSelectBitmap';
 import { perfLogLine } from '@/common/perfLog';
 import { d6jueUnknownLog } from '@/common/d6jueLog';
 import { d6jueAnalysisLog, d6jueAnalysisSetRun, d6jueAnalysisPath } from '@/common/d6jueAnalysisLog';
+import { D6_LOGIC_VERSION } from '@/common/d6jueVersion';
 
 // const normal = -1; //定义常量
 const left = 0;
@@ -17,8 +21,43 @@ let mapWarmedUp = false;
 let mapReadCount = 0;
 let bossDetectLogged = false;
 let shopGridMissLogged = false;
+let shopEnterTime = 0;
+let lastWalletOcrTime = 0;
+// buff/舞技选择后锁住，直到选择界面消失，防止切换动画期间同一屏被重复点击、重复记账
+let buffSelectLockActive = false;
+let buffSelectLockUntil = 0;
+// 六道觉每座岛的进岛 +50 只记一次；buff +100 按选buff界面计（混沌精英可两次）。
+// 岛屿 key 在点击主地图节点时更新，重试同一节点不会重置。
+let d6IslandKey = '';
+let d6IslandGainDone = false;
+// 商店/选buff刷新：点击后先挂起费用，等下一次 OCR 校验是否真的扣了
+let d6PendingRefreshCost = 0;
+let d6PendingRefreshSource = '';
+let d6PendingRefreshWalletBefore = 0;
+let d6PendingRefreshTime = 0;
+// 唤息：点击后等地图刷新确认，进入新地图才扣一次 300
+let d6HuanxiPending = false;
+let d6HuanxiPendingTime = 0;
+let d6HuanxiPendingSig = '';
 // 按小地图画面哈希缓存识别结果，避免冷却/等待期间对同一帧重复跑 NCC
 let mapStateCache: { hash: string; state: D6MapState | null } | null = null;
+// 最近一次成功读取的小地图画面哈希：给步数状态机判断“点击后是否发生转场/动画”
+let lastMapHash = '';
+// 步数状态机：地图推进为主，右上角回合数字只做校验/恢复
+let stepTracker: D6StepTracker | null = null;
+// 回合数字读取缓存：同一地图行允许 300~500ms 后重读，避免换行动画/奖励弹窗期间一次 miss 就放弃
+let stepCounterRead: {
+	rowKey: string;
+	result: D6StepCounterResult | null;
+	attempts: number;
+	firstTime: number;
+	lastTime: number;
+	exhausted: boolean;
+	missLogged: boolean;
+	rejectLogged: boolean;
+	waitLogged: boolean;
+	matchLogged: boolean;
+} | null = null;
 
 /** 小地图缓存哈希：颜色量化到 16 级 + 12x12 抽样，忽略轻微动画 */
 function d6MapImageHash(image: { width: number; height: number; data: any }): string {
@@ -34,6 +73,16 @@ function d6MapImageHash(image: { width: number; height: number; data: any }): st
 		}
 	}
 	return String(h);
+}
+
+/**
+ * 步数状态机用的地图行指纹：类型 + 量化 x/y + 定位针。
+ * 坐标量化到 8px，避免 NCC ±1~2px 抖动被当成“新的一行”。
+ */
+function d6StepRowKey(state: D6MapState): string {
+	const nodes = state.reachable.map(n => `${n.type}${Math.round(n.x / 8) * 8}`).join('/');
+	const pin = state.pin ? `${Math.round(state.pin.x / 8) * 8},${Math.round(state.pin.y / 8) * 8}` : '-';
+	return `${nodes || '-'}|${Math.round(state.nextRowY / 8) * 8}|${pin}`;
 }
 // TODO(六道觉): 后续恢复“只有脚本点击开启才执行六道觉操作”的限制，改回 true
 const REQUIRE_SCRIPT_START = false;
@@ -63,12 +112,39 @@ const MAP_PRIORITY_SHOP_HUNT: { [key: string]: number } = {
 };
 // 孔雀国全程 20 步；绽放固定在第 5/10/15 关
 const D6_TOTAL_STEPS = 20;
-const D6_BLOOM_STEPS = [5, 10, 15];
-const D6_MAP_SIG_WAIT = 5000;
+const D6_MAP_SIG_WAIT = 700;
+const D6_MAP_SETTLE_MS = 1000;
+const D6_MAP_CLICK_HALF_W = 6;
+// 这些 operator 属于地图选择阶段，命中时不能当作“已进入岛屿”的证据。
+// 0~3 是进入副本/开启，37/44 是唤息亮暗；其余 operator 在 stepPending 期间命中
+// 都说明已经离开地图、进入岛屿事件/战斗/商店/buff 等界面。
+const D6_STEP_MAP_OPERATORS: { [key: number]: boolean } = {
+	0: true,
+	1: true,
+	2: true,
+	3: true,
+	// 12 核心buff满层/29 双倍次数是地图或开局就可见的标识，
+	// 即使以后补上取色也不能当作“已进入岛屿”的证据。
+	12: true,
+	29: true,
+	37: true,
+	44: true,
+};
 const D6_HUANXI_COST = 300;
 const D6_SHOP_LEI_PRICE = 200;
-const D6_SHOP_REFRESH_COST = 50;
+// 实机商店截图刷新按钮为「100(剩N次)」，每次 100，不是 50
+const D6_SHOP_REFRESH_COST = 100;
 const D6_SHOP_REFRESH_MAX = 3;
+const D6_BUFF_REFRESH_COST = 50;
+// 每座岛 +50 只记一次：战斗岛在进入战斗/挑战时，商店在退出时，其他事件在完成时。
+// 挑战的 50 就是这个，不再额外加；商店入口 OCR 证明此时尚未到账。
+const D6_ISLAND_GAIN = 50;
+// 选buff/舞技 +100 按“选buff界面”计：混沌精英能选两次，就有两次；同一屏的重复点击由选择锁挡住。
+// 实机记录：极道轰炸/六道封印/怪力乱神/六道化身 曾出现 +150；生命加成/炽焚天火/舞技强化为 +100。
+// 先按 100 计算；OCR 若对某张卡持续 +50，再按卡名补差，不按点击次数加。
+const D6_ISLAND_BUFF_GAIN = 100;
+// OCR 读数与每岛固定收益计算的合理差；超过视为 OCR 读错，不拿来校准
+const D6_WALLET_OCR_DIFF_MAX = 500;
 // 宁息商店 3×3 购买区（1280x720 开发坐标，按实机截图划分）
 // 每格只取图标下方的名称/价格区，不含图标；第三行贴底，底部裁到 719
 const D6_SHOP_GRID_X_BOUNDS = [680, 850, 1010, 1180];
@@ -97,7 +173,7 @@ function d6ShopGridIndex(x: number, y: number): number {
 	return row * 3 + col;
 }
 // buff 黑名单：默认永不选择
-const DEFAULT_BUFF_BLACKLIST = '六道·混沌,六道·偶戏,妖力化身,攻击加成';
+const DEFAULT_BUFF_BLACKLIST = '六道·混沌,六道·偶戏,妖力化身,攻击加成,背水一战';
 // buff 名称 -> multiFindColors 的 key（去掉 Rhino 不认的间隔号 ·）
 const buffColorKey = (name: string) => `六道觉_buff_${name.replace(/\u00b7/g, '')}`;
 // 需要注意的 buff：名称用于图标识别和等级限制
@@ -135,6 +211,25 @@ let buffPatternWarned = false;
  * [690, 509, 510, 0, 1, 323, 2, 3, 24, 29, 503]
  * 注意：本功能应排在[2退出结算]前；入口步骤需要方案中包含[29庭院进入探索地图]。
  */
+// 主地图固定选择位（1280x720 开发坐标），下标与 d6jueMap.ts 的 D6_MAP_SLOTS 一致。
+// 运行时用于两件事：operator[53] 的固定点击区；横幅锚点检测时反推截图缩放比例。
+// 混沌秘宝专属点（宝匣/离开按钮）不是纯色，固定用 88 的相似度检查；
+// 用户全局 colorSimilar 可能设得更高，会把 2~4 的通道差也判失败。
+const D6_CHEST_SIMILAR = 88;
+
+const D6_MAP_SLOT_DEV_RECTS: Array<[number, number, number, number]> = [
+	[645, 340, 695, 500], // single
+	[384, 320, 424, 490], // two-left
+	[885, 350, 940, 510], // two-right
+	[265, 310, 320, 460], // three-left
+	[710, 340, 765, 500], // three-center
+	[1005, 320, 1065, 480], // three-right
+	[190, 330, 240, 480], // four-1
+	[450, 450, 505, 600], // four-2
+	[870, 460, 925, 610], // four-3
+	[1000, 360, 1060, 510], // four-4
+];
+
 export class Func323 implements IFuncOrigin {
 	id = 323;
 	name = '六道觉';
@@ -182,8 +277,28 @@ export class Func323 implements IFuncOrigin {
 			type: 'switch',
 			default: false,
 		}, {
+			name: 'mapSettleMs',
+			desc: '识别到新地图后等待多少毫秒再点击',
+			type: 'integer',
+			default: '1000',
+		}, {
+			name: 'mapRetryMs',
+			desc: '地图点击未生效后的重试等待（毫秒）',
+			type: 'integer',
+			default: '700',
+		}, {
+			name: 'stepRetryMs',
+			desc: '点击岛屿后未观测到进岛/换行证据时的重试等待（毫秒）；过短会在入岛动画期间重复点击',
+			type: 'integer',
+			default: '4500',
+		}, {
+			name: 'walletOcr',
+			desc: '万相铃按每岛固定收益计算，商店/选buff时OCR校验并校准；关闭OCR后只靠计算，可能累积误差',
+			type: 'switch',
+			default: true,
+		}, {
 			name: 'buffBlacklist',
-			desc: 'buff黑名单（逗号分隔，默认：六道·混沌,六道·偶戏,妖力化身,攻击加成；其中妖力化身/攻击加成始终强制加入；名称需在 multiFindColors.ts 配置 六道觉_buff_<名称> 多点找色）',
+			desc: 'buff黑名单（逗号分隔，默认：六道·混沌,六道·偶戏,妖力化身,攻击加成,背水一战；其中妖力化身/攻击加成/背水一战始终强制加入；名称需在 multiFindColors.ts 配置 六道觉_buff_<名称> 多点找色）',
 			type: 'text',
 			default: DEFAULT_BUFF_BLACKLIST,
 		}],
@@ -324,11 +439,38 @@ export class Func323 implements IFuncOrigin {
 		// TODO(六道觉): 取色
 		// oper 可参考 316[20]：[center, 1280, 720, 1140, 24, 1215, 40, 500]
 	}, { // 24 六道觉 -> 战斗失败_放弃前行
-		// TODO(六道觉): 取色
-		// oper 可参考 316[28]：[center, 1280, 720, 673, 406, 844, 458, 1000]
+		// 复用 316 的战斗失败界面取色；TODO(六道觉): 拿到六道觉失败截图后再校准
+		desc: [1280, 720,
+			[
+				[center, 449, 224, 0x724d3c],
+				[center, 442, 425, 0xdf6851],
+				[center, 691, 415, 0xf3b25e],
+				[center, 871, 223, 0x634334],
+				[center, 836, 406, 0x983b2e],
+				[center, 431, 371, 0xcbb59c],
+				[center, 846, 379, 0xcbb59c],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 673, 406, 844, 458, 1000],
+		],
 	}, { // 25 六道觉 -> 战斗失败_确定放弃
-		// TODO(六道觉): 取色
-		// oper 可参考 316[29]：[center, 1280, 720, 680, 397, 802, 448, 1000]
+		// 复用 316 的战斗失败界面取色；TODO(六道觉): 拿到六道觉失败截图后再校准
+		desc: [1280, 720,
+			[
+				[center, 442, 222, 0x644434],
+				[center, 819, 222, 0x6a4737],
+				[center, 475, 352, 0xcbb59c],
+				[center, 692, 417, 0xf3b25e],
+				[center, 575, 408, 0xdf6851],
+				[center, 800, 397, 0x993b2f],
+				[center, 795, 346, 0xcbb59c],
+				[center, 478, 364, 0xcbb59c],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 680, 397, 802, 448, 1000],
+		],
 	}, { // 26 六道觉 -> 结算_奖励弹窗
 		// TODO(六道觉): 取色
 		// oper 可参考 316[13]：[right, 1280, 720, 913, 129, 1245, 648, 500]
@@ -546,7 +688,8 @@ export class Func323 implements IFuncOrigin {
 			[center, 1280, 720, 1160, 635, 1205, 680, 1500], // 绽放-离开
 		],
 	}, { // 46 六道觉 -> 混沌_精英
-		// 已取色：混沌之屿-精英
+		// 只用左上角「混沌之屿」标题的 5 个取色点，不再绑定精英立绘/名字条。
+		// 混沌秘宝由 operator[47] 先判断；47 判断不到时才按精英处理。
 		desc: [1280, 720,
 			[
 				[left, 148, 29, 0xf8f3e0],
@@ -554,7 +697,6 @@ export class Func323 implements IFuncOrigin {
 				[left, 186, 50, 0xf8f3e0],
 				[left, 211, 38, 0xf7f2df],
 				[left, 128, 52, 0xf8f3e0],
-				[center, 625, 314, 0x3f5081],
 			]
 		],
 		oper: [
@@ -568,7 +710,12 @@ export class Func323 implements IFuncOrigin {
 				[left, 159, 51, 0xf8f3e0],
 				[left, 184, 49, 0xf8f3e0],
 				[left, 203, 43, 0xf8f3e0],
-				[right, 647, 295, 0x364b7a],
+				// 只用右下角「离开」按钮做秘宝专属点。宝匣/横幅会随开箱动画变化，
+				// 用其取色会在 46 反复点宝匣时永远匹配不到；离开按钮是静态的，
+				// 且精英界面没有这个按钮（精英对应点为蓝色背景，diff 100+）。
+				// 离开按钮上取 3 个点：外圈暗部、内圈金边、白色出口箭头。
+				[right, 1168, 633, 0x090704],
+				[right, 1185, 675, 0xdbbf92],
 				[right, 1200, 658, 0xead5b4],
 			]
 		],
@@ -633,16 +780,16 @@ export class Func323 implements IFuncOrigin {
 		// 6~9=四个(从左到右)。
 		// 实测：点岛屿平台/水面无效，必须点岛屿上方的竖排横幅/名称。以下区域都对准横幅。
 		oper: [
-			[center, 1280, 720, 645, 340, 695, 500, 500], // single
-			[center, 1280, 720, 360, 320, 410, 490, 500], // two-left
-			[center, 1280, 720, 885, 350, 940, 510, 500], // two-right
-			[center, 1280, 720, 265, 310, 320, 460, 500], // three-left
-			[center, 1280, 720, 710, 340, 765, 500, 500], // three-center
-			[center, 1280, 720, 1005, 320, 1065, 480, 500], // three-right
-			[center, 1280, 720, 190, 330, 240, 480, 500], // four-1
-			[center, 1280, 720, 450, 450, 505, 600, 500], // four-2
-			[center, 1280, 720, 870, 460, 925, 610, 500], // four-3
-			[center, 1280, 720, 1000, 360, 1060, 510, 500], // four-4
+			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[0], 500], // single
+			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[1], 500], // two-left（实机横幅在 x≈390~415，原中心偏左）
+			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[2], 500], // two-right
+			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[3], 500], // three-left
+			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[4], 500], // three-center
+			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[5], 500], // three-right
+			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[6], 500], // four-1
+			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[7], 500], // four-2
+			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[8], 500], // four-3
+			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[9], 500], // four-4
 		],
 	}];
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
@@ -667,7 +814,27 @@ export class Func323 implements IFuncOrigin {
 		}
 		const thisConf = thisScript.scheme.config['323'] || {};
 		const g = thisScript.global;
+		const mapSettleMs = Math.max(0, parseInt(String(thisConf.mapSettleMs === undefined ? D6_MAP_SETTLE_MS : thisConf.mapSettleMs), 10) || 0);
+		const mapRetryMs = Math.max(500, parseInt(String(thisConf.mapRetryMs === undefined ? D6_MAP_SIG_WAIT : thisConf.mapRetryMs), 10) || D6_MAP_SIG_WAIT);
+		// 点击后多久没有离图/岛屿证据才允许重试。换行/入岛动画可能持续 3~4s，
+		// 这里优先保证不多点，失败重试慢一点可以接受。
+		const stepRetryMs = Math.max(2500, mapRetryMs, parseInt(String(thisConf.stepRetryMs === undefined ? 4500 : thisConf.stepRetryMs), 10) || 4500);
 		const now = () => new Date().getTime();
+
+		// 首领战超过 60 秒仍未结算，停止脚本，避免失败界面未识别时无限挂机
+		if (g.d6jueBossStartTime && now() - g.d6jueBossStartTime > 60000) {
+			const msg = '首领战超过60秒未结束，停止脚本';
+			console.log('[d6jue] ' + msg);
+			d6jueAnalysisLog('boss.timeout', {
+				step: g.d6jueStepLeft || 0,
+				power: g.d6juePowerLevel || 0,
+				lei: g.d6jueLeiLevel || 0,
+			});
+			g.d6jueBossStartTime = 0;
+			thisScript.myToast(msg);
+			thisScript.rerun('__停止脚本__');
+			return true;
+		}
 		const perfLogEnabled = !!thisConf.perfLog;
 		const perfLog = (name: string, ms: number, detail = '', alwaysFile = false) => {
 			const line = `[d6jue-perf] ${name} ${ms}ms${detail ? ' ' + detail : ''}`;
@@ -687,6 +854,49 @@ export class Func323 implements IFuncOrigin {
 
 		// 只使用已取色的状态，未填 desc 的 TODO 占位不会命中
 		const isReady = (item?: IFuncOperator): item is IFuncOperator => !!(item && item.desc && item.desc.length);
+
+		// 步数状态机：纯逻辑在 d6jueStepTracker.ts，这里只负责配置和同步到 g。
+		const getStepTracker = (): D6StepTracker => {
+			if (!stepTracker) {
+				// 进程刚启动时无法确定是“新开局”还是“中途接手”：
+				// 先按满步数、未初始化处理，由计数器连续两次一致后再校准到真实剩余步数。
+				// 这样不会把上一次运行残留的 g.d6jueStepLeft 当成当前局的步数。
+				stepTracker = new D6StepTracker({ totalSteps: D6_TOTAL_STEPS });
+				stepTracker.reset(D6_TOTAL_STEPS, false, now());
+				d6jueAnalysisLog('step.init', { left: D6_TOTAL_STEPS, mode: 'lazy' });
+			}
+			stepTracker.configure({
+				totalSteps: D6_TOTAL_STEPS,
+				settleMs: mapSettleMs,
+				retryMinMs: stepRetryMs,
+				retryHashChangedMs: Math.max(stepRetryMs, 8000),
+				weakRowMs: 3500,
+				counterMinConfidence: 0.55,
+				bloomEvery: 5,
+				bloomFixMaxGap: 2,
+				counterConfirmGapMs: 2000,
+			});
+			return stepTracker;
+		};
+		const syncStepState = () => {
+			const tracker = getStepTracker();
+			g.d6jueStepLeft = tracker.left;
+			g.d6jueStepPending = tracker.pending;
+		};
+		// 岛屿界面证据：只标记 committed，真正扣步等下一次稳定地图。
+		const noteStepIsland = (source: string) => {
+			if (!stepTracker || !stepTracker.pending) return;
+			if (!stepTracker.noteIsland(now(), source)) return;
+			d6jueAnalysisLog('step.island_seen', {
+				source,
+				left: stepTracker.left,
+				step: stepTracker.stepNo,
+				seq: stepTracker.islandSeq,
+			});
+		};
+		getStepTracker();
+		syncStepState();
+
 		const oper = (indexes: number[], name: string, retest = 0): boolean => {
 			const operator = indexes.map(index => thisOperator[index]).filter(isReady);
 			if (operator.length === 0) return false;
@@ -694,10 +904,49 @@ export class Func323 implements IFuncOrigin {
 			const matched = !!thisScript.oper({ id: 323, name, operator }, retest);
 			const dt = now() - t0;
 			if (perfLogEnabled || dt >= 120) perfLog(`oper ${name}`, dt, `matched=${matched} retest=${retest}`);
+			if (matched && stepTracker && stepTracker.pending) {
+				for (let i = 0; i < indexes.length; i++) {
+					if (!D6_STEP_MAP_OPERATORS[indexes[i]]) {
+						noteStepIsland(name);
+						break;
+					}
+				}
+			}
 			return matched;
 		};
 
-		// 万相铃计算（用于商店购买/刷新决策）
+		// 选择 buff/舞技后锁住，直到选择界面消失。
+		// 混沌精英第二轮选 buff 时选择界面不会消失，而是直接换成下一组卡；
+		// 原来固定 8s 会把第二轮硬拖到 8s 后才处理（实测两次 buff.pick 间隔 9.1~9.5s）。
+		// 2.5s 足够覆盖选卡/舞技强化的切换动画，又能让第二轮及时开始。
+		const buffSelectLocked = () => buffSelectLockActive && now() < buffSelectLockUntil;
+		const lockBuffSelect = () => {
+			buffSelectLockActive = true;
+			buffSelectLockUntil = now() + 2500;
+		};
+
+		// 选择锁：buff/舞技界面已经切走就解除，超时兜底，避免卡死
+		if (buffSelectLockActive) {
+			const selectOps = [39, 41, 49].map(index => thisOperator[index]).filter(isReady);
+			const stillSelecting = selectOps.length > 0 && thisScript.desc({
+				id: 323,
+				name: '六道觉_选择界面锁检测',
+				operator: selectOps,
+			}, thisScript.scheme.commonConfig);
+			if (!stillSelecting || now() >= buffSelectLockUntil) {
+				// 锁到期时选择界面还在：多发生在混沌精英第二轮直接换卡，
+				// 记录一次便于确认这次延迟是否由选择锁造成。
+				if (stillSelecting) {
+					d6jueAnalysisLog('buff.lock_timeout', { ms: 2500 });
+				}
+				buffSelectLockActive = false;
+				buffSelectLockUntil = 0;
+			}
+		}
+		// 选择动画期间不再执行任何点击（包括舞技强化的选择按钮），等界面切走
+		if (buffSelectLocked()) return true;
+
+		// 万相铃计算：进岛 +50 每岛一次；选buff +100 按界面计。
 		const addWanxiangling = (amount: number, source: string) => {
 			g.d6jueWanxiangling = (g.d6jueWanxiangling || 0) + amount;
 			console.log(`[d6jue-wanxiangling] ${source}+${amount}，当前=${g.d6jueWanxiangling}`);
@@ -705,45 +954,178 @@ export class Func323 implements IFuncOrigin {
 				amount,
 				source,
 				wallet: g.d6jueWanxiangling || 0,
-				pending: g.d6jueWanxianglingPending || 0,
 				step: g.d6jueStepLeft || 0,
 				lei: g.d6jueLeiLevel || 0,
 				power: g.d6juePowerLevel || 0,
+				island: d6IslandKey,
 			});
 		};
-		const applyPendingWanxiangling = () => {
-			const pending = g.d6jueWanxianglingPending || 0;
-			if (pending) {
-				g.d6jueWanxiangling = (g.d6jueWanxiangling || 0) + pending;
-				g.d6jueWanxianglingPending = 0;
-				console.log(`[d6jue-wanxiangling] 进入下个区域，预加生效+${pending}，当前=${g.d6jueWanxiangling}`);
-				d6jueAnalysisLog('wallet.apply', {
-					amount: pending,
-					wallet: g.d6jueWanxiangling || 0,
+		// 岛屿上下文：每次点击主地图节点时换 key；同一节点的重试沿用同一 key。
+		const beginIsland = (key: string) => {
+			if (key === d6IslandKey) return;
+			d6IslandKey = key;
+			d6IslandGainDone = false;
+		};
+		const ensureIsland = () => {
+			if (!d6IslandKey) beginIsland(`mid:${g.d6jueStepLeft || 0}`);
+		};
+		// 每座岛 +50 只记一次；source 记录实际到账触发点
+		const addIslandGainOnce = (source: string) => {
+			ensureIsland();
+			if (d6IslandGainDone) return;
+			d6IslandGainDone = true;
+			addWanxiangling(D6_ISLAND_GAIN, source);
+		};
+		// 刷新费用不盲目扣：OCR 可用时先挂起，等下一次 OCR 读数校验；
+		// OCR 关闭时没有校验手段，退回点击即扣。
+		const beginPendingRefreshCost = (cost: number, source: string, walletBefore: number) => {
+			if (thisConf.walletOcr === false) {
+				g.d6jueWanxiangling = Math.max(0, walletBefore - cost);
+				return;
+			}
+			d6PendingRefreshCost = cost;
+			d6PendingRefreshSource = source;
+			d6PendingRefreshWalletBefore = walletBefore;
+			d6PendingRefreshTime = now();
+		};
+		// OCR 用于校验/校准每岛固定收益计算：读到值后和计算值比较，差值合理才同步。
+		const readWanxianglingOcr = (tag: string) => {
+			if (thisConf.walletOcr === false) return;
+			const t = now();
+			if (t - lastWalletOcrTime < 1200) return;
+			lastWalletOcrTime = t;
+			try {
+				const helper = thisScript.helperBridge.helper;
+				const readRegion = (x1: number, y1: number, x2: number, y2: number) => {
+					const sr = helper.GetPoint(x1, y1, right);
+					const er = helper.GetPoint(x2, y2, right);
+					const result = thisScript.findNum(0, [sr.x, sr.y, er.x, er.y]);
+					const list = Array.isArray(result) ? result : [];
+					const out: { text: string; value: number }[] = [];
+					for (const item of list) {
+						const text = item && item.label !== undefined ? String(item.label) : '';
+						const value = parseInt(text.replace(/[^\d]/g, ''), 10);
+						if (!isNaN(value)) out.push({ text, value });
+					}
+					return out;
+				};
+				const leadingZero = (text: string) => {
+					const digits = text.replace(/[^\d]/g, '');
+					return digits.length > 1 && digits.charAt(0) === '0';
+				};
+				const internal = g.d6jueWanxiangling || 0;
+				const regions = [[1160, 8, 1275, 62], [1100, 0, 1270, 60]];
+				let chosen: { text: string; value: number } | null = null;
+				let first: { text: string; value: number } | null = null;
+				const allText: string[] = [];
+				for (const region of regions) {
+					const candidates = readRegion(region[0], region[1], region[2], region[3]);
+					for (const candidate of candidates) {
+						if (leadingZero(candidate.text)) continue;
+						allText.push(candidate.text);
+						if (!first) first = candidate;
+						if (Math.abs(candidate.value - internal) <= D6_WALLET_OCR_DIFF_MAX
+							&& (!chosen || Math.abs(candidate.value - internal) < Math.abs(chosen.value - internal))) {
+							chosen = candidate;
+						}
+					}
+					// 第一个区域读数与计算值接近就直接用；差得较多时再读旧区域，防止少读前导数字
+					if (chosen && Math.abs(chosen.value - internal) <= 200) break;
+				}
+				const picked = chosen || first;
+				const value = picked ? picked.value : NaN;
+				const valid = !isNaN(value) && value >= 0 && Math.abs(value - internal) <= D6_WALLET_OCR_DIFF_MAX;
+				const pendingCost = d6PendingRefreshCost;
+				const pendingSource = d6PendingRefreshSource;
+				const pendingBefore = d6PendingRefreshWalletBefore;
+				let calc = internal;
+				let costVerified = 0;
+				let costDrop: number | '' = '';
+				if (valid && pendingCost > 0) {
+					costDrop = pendingBefore - value;
+					costVerified = Math.abs(costDrop - pendingCost) <= 20 ? 1 : 0;
+					if (costVerified) calc = Math.max(0, internal - pendingCost);
+					d6PendingRefreshCost = 0;
+					d6PendingRefreshSource = '';
+					d6PendingRefreshWalletBefore = 0;
+					d6PendingRefreshTime = 0;
+					d6jueAnalysisLog('wallet.cost_check', {
+						source: pendingSource,
+						cost: pendingCost,
+						before: pendingBefore,
+						ocr: value,
+						drop: costDrop,
+						verified: costVerified,
+						applied: costVerified,
+						step: g.d6jueStepLeft || 0,
+					});
+					console.log(`[d6jue-wallet] ${pendingSource}费用校验: 预期-${pendingCost} 实际-${costDrop} ${costVerified ? '✓' : '✗'}`);
+				} else if (!valid && pendingCost > 0 && now() - d6PendingRefreshTime > 5000) {
+					d6PendingRefreshCost = 0;
+					d6PendingRefreshSource = '';
+					d6PendingRefreshWalletBefore = 0;
+					d6PendingRefreshTime = 0;
+					d6jueAnalysisLog('wallet.cost_check', {
+						source: pendingSource,
+						cost: pendingCost,
+						before: pendingBefore,
+						verified: 0,
+						applied: 0,
+						reason: 'ocr_timeout',
+						step: g.d6jueStepLeft || 0,
+					});
+					console.log(`[d6jue-wallet] ${pendingSource}费用OCR校验超时，未自动扣费`);
+				}
+				const rawDiff = valid ? value - calc : '';
+				let synced = 0;
+				let walletAfter = internal;
+				if (valid) {
+					walletAfter = calc;
+					if (value !== calc) {
+						walletAfter = value;
+						synced = 1;
+						d6jueAnalysisLog('wallet.sync', {
+							tag,
+							from: calc,
+							to: value,
+							delta: value - calc,
+							ocr: value,
+							rawDiff,
+							step: g.d6jueStepLeft || 0,
+						});
+						console.log(`[d6jue-wallet] OCR校准(${tag}) 计算 ${calc} -> ${value}（差=${rawDiff}）`);
+					}
+					if (walletAfter !== internal) g.d6jueWanxiangling = walletAfter;
+				}
+				d6jueAnalysisLog('wallet.ocr', {
+					tag,
+					ocr: valid ? value : '?',
+					text: picked ? picked.text : allText.join('|'),
+					rawValue: picked ? picked.value : '',
+					wallet: internal,
+					walletAfter,
+					diff: rawDiff,
+					costVerified,
+					readError: valid ? 0 : 1,
+					synced,
 					step: g.d6jueStepLeft || 0,
 				});
+				console.log(`[d6jue-wallet] OCR(${tag}) 游戏=${valid ? value : '?'}${valid ? '' : `（读取异常${allText.length ? ':' + allText.join('|') : ''}）`} 计算=${internal}${valid ? ` 校验后=${calc} 差=${rawDiff}` : ''}`);
+			} catch (e) {
+				console.log(`[d6jue-wallet] OCR(${tag}) 异常: ${e}`);
 			}
 		};
-		const addPendingWanxiangling = (amount: number, reason: string) => {
-			g.d6jueWanxianglingPending = (g.d6jueWanxianglingPending || 0) + amount;
-			console.log(`[d6jue-wanxiangling] ${reason}，预加+${amount}，下个区域生效`);
-			d6jueAnalysisLog('wallet.pending', {
-				amount,
-				reason,
-				wallet: g.d6jueWanxiangling || 0,
-				pending: g.d6jueWanxianglingPending || 0,
-				step: g.d6jueStepLeft || 0,
-				lei: g.d6jueLeiLevel || 0,
-				power: g.d6juePowerLevel || 0,
-			});
-		};
-		// 舞技强化/buff 界面右下角刷新，统一扣费与记录
+		// 舞技强化/buff 界面右下角刷新：OCR 可用时等下一次读数校验费用
 		const refreshBuffSelection = () => {
+			const before = g.d6jueWanxiangling || 0;
 			thisScript.regionClick([[1180, 625, 1235, 675, 1500]]);
-			g.d6jueWanxiangling = (g.d6jueWanxiangling || 0) - 50;
-			console.log(`[d6jue-lei] 刷新-50，万相铃=${g.d6jueWanxiangling}`);
+			beginPendingRefreshCost(D6_BUFF_REFRESH_COST, 'buff_refresh', before);
+			console.log(`[d6jue-lei] 刷新buff -${D6_BUFF_REFRESH_COST}，当前计算余额=${g.d6jueWanxiangling}（等OCR校验）`);
 			d6jueAnalysisLog('buff.refresh', {
+				cost: D6_BUFF_REFRESH_COST,
+				walletBefore: before,
 				wallet: g.d6jueWanxiangling || 0,
+				costPending: thisConf.walletOcr !== false ? 1 : 0,
 				lei: g.d6jueLeiLevel || 0,
 				power: g.d6juePowerLevel || 0,
 				step: g.d6jueStepLeft || 0,
@@ -759,6 +1141,7 @@ export class Func323 implements IFuncOrigin {
 				.filter(item => item.length > 0),
 			CAUTION_BUFF_YAO,
 			CAUTION_BUFF_ATTACK,
+			CAUTION_BUFF_BEISHUI,
 		]));
 		const knownBuffNames = Array.from(new Set([...buffBlacklist, ...KNOWN_BUFF_NAMES]));
 
@@ -833,14 +1216,41 @@ export class Func323 implements IFuncOrigin {
 		};
 
 		const clickBuffCard = (index: number, name: string | null): boolean => {
+			if (buffSelectLocked()) return true;
 			if (name && !isBuffSelectable(name)) {
 				console.log(`[d6jue-buff] 拒绝选择不可用buff: ${name}`);
 				return false;
 			}
 			const button = buffButtons[index];
 			if (!button) return false;
+			// TODO(六道觉): 未知卡截图仅用于补取色，黑名单识别稳定后移除
+			if (!name && thisConf.walletOcr !== false) {
+				try {
+					const dir = context.getExternalFilesDir(null);
+					if (dir) {
+						const img = images.captureScreen();
+						if (img) {
+							const shot = `${dir.getAbsolutePath()}/d6jue_buff_${g.d6jueTimes || 0}_${g.d6jueStepLeft || 0}_${now()}.png`;
+							images.save(img, shot);
+							img.recycle();
+							console.log(`[d6jue-buff] 未知卡截图: ${shot}`);
+							d6jueAnalysisLog('buff.screenshot', {
+								path: shot,
+								step: g.d6jueStepLeft || 0,
+								pos: index + 1,
+								lei: g.d6jueLeiLevel || 0,
+								power: g.d6juePowerLevel || 0,
+							});
+						}
+					}
+				} catch (e) {
+					// 截图失败不影响选卡
+				}
+			}
 			thisScript.regionClick([[button[0], button[1], button[2], button[3], 500]]);
-			addPendingWanxiangling(100, `选择buff:${name || '未知'}`);
+			lockBuffSelect();
+			// 每个选buff界面 +100；同一屏的重复点击由选择锁挡住
+			addWanxiangling(D6_ISLAND_BUFF_GAIN, `选buff:${name || '未知'}`);
 			if (name === '六道轰雷') {
 				g.d6jueLeiLevel = (g.d6jueLeiLevel || 0) + 1;
 			} else {
@@ -857,6 +1267,7 @@ export class Func323 implements IFuncOrigin {
 				power: g.d6juePowerLevel || 0,
 				wallet: g.d6jueWanxiangling || 0,
 				pending: g.d6jueWanxianglingPending || 0,
+				island: d6IslandKey,
 				step: g.d6jueStepLeft || 0,
 			});
 			return true;
@@ -878,10 +1289,12 @@ export class Func323 implements IFuncOrigin {
 
 		// 死局强制选择：跳过黑名单/等级限制，直接点一张，并把本局标记为无法通关
 		const forceClickBuffCard = (index: number, name: string | null): boolean => {
+			if (buffSelectLocked()) return true;
 			const button = buffButtons[index];
 			if (!button) return false;
 			thisScript.regionClick([[button[0], button[1], button[2], button[3], 500]]);
-			addPendingWanxiangling(100, `死局选择buff:${name || '未知'}`);
+			lockBuffSelect();
+			addWanxiangling(D6_ISLAND_BUFF_GAIN, `死局选buff:${name || '未知'}`);
 			g.d6jueCantClear = true;
 			g.d6jueOtherBuffSelected = true;
 			console.log(`[d6jue-buff] 死局强制选择 ${name || '未知'}（位置=${index + 1}），标记无法通关=T`);
@@ -892,6 +1305,7 @@ export class Func323 implements IFuncOrigin {
 				lei: g.d6jueLeiLevel || 0,
 				power: g.d6juePowerLevel || 0,
 				wallet: g.d6jueWanxiangling || 0,
+				island: d6IslandKey,
 			});
 			return true;
 		};
@@ -933,6 +1347,7 @@ export class Func323 implements IFuncOrigin {
 		const readMapState = () => {
 			const t0 = now();
 			const readIndex = mapReadCount++;
+			lastMapHash = '';
 			try {
 				const helper = thisScript.helperBridge.helper;
 				const region = D6_MINIMAP_DEV_REGION;
@@ -954,11 +1369,39 @@ export class Func323 implements IFuncOrigin {
 					const hash = d6MapImageHash(image);
 					if (mapStateCache && mapStateCache.hash === hash) {
 						const t3 = now();
+						lastMapHash = hash;
 						perfLog('map.cache', t3 - t0, `first=${readIndex === 0 ? 1 : 0} bitmap=${t1 - t0} pixels=${t2 - t1} hash=${t3 - t2} nodes=${mapStateCache.state ? mapStateCache.state.nodes.length : 0}`, true);
 						return mapStateCache.state;
 					}
 					const state = analyzeD6Map(image);
+					if (state) {
+						const shenmi = state.reachable.filter(n => n.type === '神秘');
+						const zhanfang = state.reachable.filter(n => n.type === '绽放');
+						if (shenmi.length > 0 && zhanfang.length > 0) {
+							// 按实际游戏规则，神秘和绽放不会同屏；出现即识别冲突。
+							// 只记录/截图，不在这轮点击；后续用截图修模板。
+							const detail = state.reachable
+								.map(n => `${d6MapColName(n.col)}${n.type}@${n.x},${n.y}:${n.score.toFixed(2)}`)
+								.join('|');
+							d6jueAnalysisLog('map.type_conflict', {
+								nodes: detail,
+								pin: state.pin ? `${state.pin.x},${state.pin.y}` : '',
+							});
+							try {
+								const shot = images.captureScreen();
+								const dir = context.getExternalFilesDir(null);
+								if (dir) {
+									const shotPath = `${dir.getAbsolutePath()}/d6jue_conflict_${now()}.png`;
+									images.save(shot, shotPath);
+									d6jueAnalysisLog('map.type_conflict_shot', { path: shotPath });
+								}
+							} catch (e) {
+								// 截图失败不影响主流程
+							}
+						}
+					}
 					mapStateCache = { hash, state };
+					lastMapHash = hash;
 					const t3 = now();
 					perfLog('map.read', t3 - t0, `first=${readIndex === 0 ? 1 : 0} bitmap=${t1 - t0} pixels=${t2 - t1} analyze=${t3 - t2} nodes=${state ? state.nodes.length : 0}`, true);
 					return state;
@@ -975,8 +1418,194 @@ export class Func323 implements IFuncOrigin {
 			}
 		};
 
-		// 唤息统一入口：点按钮、扣除 300 万相铃、共用点击冷却
-		const clickHuanxi = (reason: string, time: number): boolean => {
+		// 右上角「X回合后迎战迦摩天」：数字模板识别。
+		// X 是“当前回合之后还剩多少回合”，所以剩余步数 = X + 1。
+		// 换行/奖励弹窗期间会短暂读不到：同一行允许 300~500ms 后重读；
+		// pending 期间持续重读，用于确认计数器是否已经下降。
+		const readStepCounter = (rowKey: string, pending: boolean): { result: D6StepCounterResult | null; exhausted: boolean } => {
+			const t = now();
+			if (!stepCounterRead || stepCounterRead.rowKey !== rowKey) {
+				stepCounterRead = {
+					rowKey,
+					result: null,
+					attempts: 0,
+					firstTime: t,
+					lastTime: 0,
+					exhausted: false,
+					missLogged: false,
+					rejectLogged: false,
+					waitLogged: false,
+					matchLogged: false,
+				};
+			}
+			const state = stepCounterRead;
+			if (!pending && state.result) return { result: state.result, exhausted: true };
+
+			const maxAttempts = pending ? 8 : 3;
+			const maxWait = pending ? 3500 : 3000;
+			const interval = pending ? 500 : 700;
+			const withinBudget = state.attempts < maxAttempts
+				&& (state.attempts === 0 || t - state.firstTime <= maxWait);
+			if (!withinBudget) {
+				state.exhausted = true;
+				if (!state.missLogged) {
+					state.missLogged = true;
+					d6jueAnalysisLog('map.counter_miss', {
+						prev: g.d6jueStepLeft || 0,
+						row: state.rowKey,
+						attempts: state.attempts,
+					});
+				}
+				return { result: state.result, exhausted: true };
+			}
+			if (state.attempts > 0 && t - state.lastTime < interval) {
+				return { result: state.result, exhausted: !!state.result };
+			}
+
+			state.attempts++;
+			state.lastTime = t;
+			const t0 = now();
+			let result: D6StepCounterResult | null = null;
+			try {
+				const helper = thisScript.helperBridge.helper;
+				const sr = helper.GetPoint(1064, 234, right);
+				const er = helper.GetPoint(1104, 264, right);
+				if (sr.x < er.x && sr.y < er.y) {
+					const bitmap = helper.GetBitmap(sr.x, sr.y, er.x, er.y);
+					if (bitmap) {
+						try {
+							const image = bitmapToImageData(bitmap);
+							result = recognizeD6StepCounter(image);
+						} finally {
+							try {
+								bitmap.recycle();
+							} catch (e) {
+								// 忽略回收异常
+							}
+						}
+					}
+				}
+			} catch (e) {
+				result = null;
+			}
+			perfLog('map.counter_read', now() - t0, `ok=${result ? 1 : 0} row=${rowKey} try=${state.attempts}${result ? ` x=${result.value} digits=${result.digits} conf=${result.confidence.toFixed(2)}` : ''}`, true);
+			if (result) {
+				state.result = result;
+				state.exhausted = true;
+				return { result, exhausted: true };
+			}
+			state.result = null;
+			if (state.attempts >= maxAttempts || now() - state.firstTime >= maxWait) {
+				state.exhausted = true;
+				if (!state.missLogged) {
+					state.missLogged = true;
+					d6jueAnalysisLog('map.counter_miss', {
+						prev: g.d6jueStepLeft || 0,
+						row: state.rowKey,
+						attempts: state.attempts,
+					});
+				}
+			}
+			return { result: null, exhausted: state.exhausted };
+		};
+
+		// 回合数字读数只做校验/恢复：成功/校准/拒绝/等待分别记录，便于离线分析。
+		const logStepCounterRead = (update: D6StepCounterUpdate, result: D6StepCounterResult): void => {
+			const pending = update.reason.indexOf('pending') !== -1 || update.reason === 'counter_drop';
+			if (update.accepted) {
+				if (update.leftAfter === update.leftBefore && stepCounterRead && stepCounterRead.matchLogged) {
+					return;
+				}
+				if (stepCounterRead) stepCounterRead.matchLogged = true;
+				d6jueAnalysisLog('map.counter', {
+					value: result.value,
+					stepLeft: update.leftAfter,
+					prev: update.leftBefore,
+					digits: result.digits,
+					conf: Number(result.confidence.toFixed(2)),
+					mode: pending ? 'pending' : 'map',
+					delta: update.leftAfter - update.leftBefore,
+					reason: update.reason,
+				});
+				if (update.leftAfter !== update.leftBefore) {
+					d6jueAnalysisLog('step.calibrate', {
+						from: update.leftBefore,
+						to: update.leftAfter,
+						delta: update.leftAfter - update.leftBefore,
+						counter: result.value,
+						digits: result.digits,
+						conf: Number(result.confidence.toFixed(2)),
+						reason: update.reason,
+						alerts: update.alerts.join(','),
+						seq: update.islandSeq,
+					});
+					console.log(`[d6jue-map] 计数器校准（${update.reason}）：剩余${update.leftBefore} -> ${update.leftAfter}`);
+				}
+				return;
+			}
+			if (update.reason === 'bloom_conflict') {
+				d6jueAnalysisLog('step.alert', {
+					kind: 'bloom_conflict',
+					counter: result.value,
+					step: update.stepNo,
+					left: update.leftBefore,
+					digits: result.digits,
+				});
+				return;
+			}
+			if (
+				update.reason === 'higher'
+				|| update.reason === 'higher_pending'
+				|| update.reason === 'low_confidence'
+				|| update.reason === 'invalid'
+			) {
+				if (stepCounterRead && !stepCounterRead.rejectLogged) {
+					stepCounterRead.rejectLogged = true;
+					d6jueAnalysisLog('map.counter_reject', {
+						value: result.value,
+						next: result.value + 1,
+						prev: update.leftBefore,
+						conf: Number(result.confidence.toFixed(2)),
+						digits: result.digits,
+						reason: update.reason,
+					});
+				}
+				return;
+			}
+			if (update.reason === 'lower_wait' || update.reason === 'resume_wait' || update.reason === 'restart_wait') {
+				// 下一次必须真实重读，而不是把同一次缓存读数当成“第二次确认”。
+				if (stepCounterRead) {
+					stepCounterRead.result = null;
+					stepCounterRead.exhausted = false;
+				}
+				if (stepCounterRead && !stepCounterRead.waitLogged) {
+					stepCounterRead.waitLogged = true;
+					d6jueAnalysisLog('map.counter_wait', {
+						value: result.value,
+						next: result.value + 1,
+						prev: update.leftBefore,
+						conf: Number(result.confidence.toFixed(2)),
+						digits: result.digits,
+						reason: update.reason,
+					});
+				}
+			}
+			if (update.reason === 'counter_drop_wait' && !update.committed && stepCounterRead) {
+				// 单次下降还不算数，强制下一次真实重读。
+				stepCounterRead.result = null;
+				stepCounterRead.exhausted = false;
+			}
+		};
+
+		// 唤息统一入口：点按钮，费用等地图刷新确认后再扣
+		const clickHuanxi = (reason: string, time: number, mapSig: string): boolean => {
+			if (d6HuanxiPending) {
+				if (now() - d6HuanxiPendingTime <= 3000) {
+					console.log('[d6jue-map] 上一次唤息还在确认中');
+					return false;
+				}
+				d6HuanxiPending = false;
+			}
 			if (time - (g.d6jueMapClickTime || 0) < 3000) {
 				console.log('[d6jue-map] 唤息点击冷却中');
 				return false;
@@ -984,37 +1613,136 @@ export class Func323 implements IFuncOrigin {
 			thisScript.regionClick([[1125, 585, 1210, 645, 500]]);
 			g.d6jueMapClickTime = time;
 			const before = g.d6jueWanxiangling || 0;
-			g.d6jueWanxiangling = Math.max(0, before - D6_HUANXI_COST);
-			console.log(`[d6jue-map] ${reason}，唤息-${D6_HUANXI_COST}，万相铃=${before}->${g.d6jueWanxiangling}`);
+			d6HuanxiPending = true;
+			d6HuanxiPendingTime = now();
+			d6HuanxiPendingSig = mapSig;
+			console.log(`[d6jue-map] ${reason}，唤息-${D6_HUANXI_COST}（等待地图刷新确认，当前=${before}）`);
 			d6jueAnalysisLog('map.huanxi', {
 				reason,
 				step: g.d6jueStepLeft || 0,
 				walletBefore: before,
-				walletAfter: g.d6jueWanxiangling || 0,
-				pending: g.d6jueWanxianglingPending || 0,
+				walletAfter: before,
+				cost: D6_HUANXI_COST,
+				deducted: 0,
+				pending: 1,
 				lei: g.d6jueLeiLevel || 0,
 				power: g.d6juePowerLevel || 0,
 			});
 			if (before < D6_HUANXI_COST) {
-				console.log(`[d6jue-map] 万相铃记录值不足${D6_HUANXI_COST}，可能存在记账偏差`);
+				console.log(`[d6jue-map] OCR余额不足${D6_HUANXI_COST}，请检查最近一次OCR`);
 			}
 			return true;
 		};
 
 		const handleMapNodes = (doClick: boolean, huanxiBright = false): boolean => {
 			const time = now();
-			if (time - (g.d6jueMapLogTime || 0) < 1000) return false;
+			if (time - (g.d6jueMapLogTime || 0) < 700) return false;
 			g.d6jueMapLogTime = time;
+			// 唤息确认超时兜底：地图一直没刷新就不扣 300，避免卡住后续唤息
+			if (d6HuanxiPending && now() - d6HuanxiPendingTime > 3000) {
+				d6HuanxiPending = false;
+				console.log('[d6jue-map] 唤息点击后地图未变化，不扣300');
+				d6jueAnalysisLog('map.huanxi_unverified', {
+					cost: D6_HUANXI_COST,
+					reason: 'no_state_change',
+					step: g.d6jueStepLeft || 0,
+				});
+			}
 
 			const state = readMapState();
 			if (!state) {
+				const invalid = getStepTracker().observeMap({
+					time,
+					rowKey: '',
+					valid: false,
+					mapHash: lastMapHash,
+				});
+				syncStepState();
+				if (invalid.pending && thisConf.logMapNodes) console.log('[d6jue-map] 小地图不可用，等待步数确认');
 				if (thisConf.logMapNodes) console.log('[d6jue-map] 未识别到小地图节点，跳过');
 				return false;
+			}
+			// 唤息专用签名：带上亮/暗，用于确认唤息后节点行确实刷新了
+			const huanxiSig = state.nodes.map(n => `${n.type}${n.x}${n.bright ? 1 : 0}`).join('/')
+				+ `|${state.nextRowY}|${state.pin ? `${state.pin.x},${state.pin.y}` : ''}`;
+			// 唤息费用确认：节点行变化说明已进入唤息后的新地图，扣 300 一次
+			if (d6HuanxiPending && huanxiSig !== d6HuanxiPendingSig) {
+				d6HuanxiPending = false;
+				const before = g.d6jueWanxiangling || 0;
+				g.d6jueWanxiangling = Math.max(0, before - D6_HUANXI_COST);
+				console.log(`[d6jue-map] 唤息已刷新地图，扣${D6_HUANXI_COST}，当前计算余额=${g.d6jueWanxiangling}`);
+				d6jueAnalysisLog('map.huanxi_confirm', {
+					cost: D6_HUANXI_COST,
+					walletBefore: before,
+					walletAfter: g.d6jueWanxiangling || 0,
+					step: g.d6jueStepLeft || 0,
+				});
 			}
 
 			// unknown 说明岛屿图标没有匹配到任何模板：无法判断目标，本回合不点击主地图，
 			// 记录一次节点信息后继续运行，等小地图刷新或人工处理。
+			const afterRead = now();
 			const unknownNodes = state.nodes.filter(n => n.type === 'unknown');
+			const typeConflict = state.reachable.some(n => n.type === '神秘')
+				&& state.reachable.some(n => n.type === '绽放');
+			const rowValid = !typeConflict
+				&& unknownNodes.length === 0
+				&& state.reachable.length >= 1
+				&& state.reachable.length <= 4;
+			const rowKey = d6StepRowKey(state);
+			const bloom = state.reachable.some(n => n.type === '绽放');
+			// boss 已把 left 置 0 后又出现完整地图：要么 boss 失败回到地图，要么新一局
+			// 没有经过“开启”按钮。重新按未初始化状态接管，由计数器决定真实剩余步数。
+			if (rowValid && getStepTracker().left <= 0 && getStepTracker().phase === 'map') {
+				getStepTracker().reset(D6_TOTAL_STEPS, false, afterRead);
+				syncStepState();
+				d6jueAnalysisLog('step.init', { left: D6_TOTAL_STEPS, mode: 'map_after_zero' });
+			}
+			const mapUpdate = getStepTracker().observeMap({
+				time: afterRead,
+				rowKey: rowValid ? rowKey : '',
+				valid: rowValid,
+				mapHash: lastMapHash,
+				bloom,
+			});
+			syncStepState();
+			if (mapUpdate.alerts.length > 0) {
+				d6jueAnalysisLog('step.alert', {
+					kind: mapUpdate.alerts.join(','),
+					step: mapUpdate.stepNo,
+					left: mapUpdate.left,
+					nodes: state.reachable.map(n => n.type).join('/'),
+				});
+				if (thisConf.logMapNodes) console.log(`[d6jue-map] 步数告警: ${mapUpdate.alerts.join(',')}`);
+			}
+			if (mapUpdate.confirmed) {
+				// 新行确认后强制重新读一次计数器，避免把 pending 期间读到的旧值缓存到新行。
+				stepCounterRead = null;
+				d6jueAnalysisLog('map.step_confirm', {
+					left: mapUpdate.left,
+					leftBefore: mapUpdate.leftBefore,
+					step: mapUpdate.stepNo,
+					seq: mapUpdate.islandSeq,
+					reason: mapUpdate.reason,
+					evidence: mapUpdate.evidence || mapUpdate.reason,
+					elapsed: mapUpdate.elapsed,
+					nodes: state.reachable.map(n => n.type).join('/'),
+				});
+				console.log(`[d6jue-map] 步数确认 +1（${mapUpdate.reason}），剩余${mapUpdate.left}步`);
+			}
+			const retriedClick = mapUpdate.retry;
+			if (mapUpdate.retry) {
+				d6jueAnalysisLog('map.step_retry', {
+					left: mapUpdate.left,
+					step: mapUpdate.stepNo,
+					seq: mapUpdate.islandSeq,
+					nodes: state.reachable.map(n => n.type).join('/'),
+					gap: mapUpdate.elapsed,
+				});
+				console.log('[d6jue-map] 点击未确认推进，重试同一行');
+				stepCounterRead = null;
+			}
+
 			if (unknownNodes.length > 0) {
 				if (!unknownMapNotified) {
 					const nodeText = state.nodes.map(n => `${d6MapColName(n.col)}${n.type}(ncc${n.score.toFixed(2)}${n.shapeScore ? `/形${n.shapeScore.toFixed(2)}` : ''},亮${n.meanLum.toFixed(0)},金${n.gold})`).join(' | ');
@@ -1034,44 +1762,96 @@ export class Func323 implements IFuncOrigin {
 				}
 				return false;
 			}
+			if (typeConflict) {
+				if (thisConf.logMapNodes) console.log('[d6jue-map] 神秘/绽放同屏冲突，等待下一帧');
+				return false;
+			}
 			unknownMapNotified = false;
 
-			// 同一行防重复点击：点击后 5 秒内仍看到相同节点行，说明还没进入事件，不再重复点
-			const reachSig = state.reachable.map(n => `${n.type}${n.x}`).join('/');
-			if (reachSig === (g.d6jueLastMapSig || '') && time - (g.d6jueLastMapSigTime || 0) < D6_MAP_SIG_WAIT) {
-				if (thisConf.logMapNodes) console.log('[d6jue-map] 同一节点行等待跳转，暂不重复点击');
+			// 待确认期间：稳定地图上重读计数器，读数下降即可确认推进。
+			if (getStepTracker().pending && rowValid && mapUpdate.settled) {
+				const pendingRead = readStepCounter(rowKey, true);
+				if (pendingRead.result) {
+					const counterUpdate = getStepTracker().noteCounter(
+						now(),
+						pendingRead.result.value + 1,
+						pendingRead.result.confidence,
+						true,
+					);
+					syncStepState();
+					logStepCounterRead(counterUpdate, pendingRead.result);
+				}
+			}
+			if (getStepTracker().pending) {
+				if (mapUpdate.committed && rowValid && mapUpdate.waitMs > 0) {
+					// 已确认离图、正在等归图稳定：精确 sleep，避免 700ms 轮询把每步拖慢。
+					const wait = Math.min(mapUpdate.waitMs, mapSettleMs);
+					if (thisConf.logMapNodes) console.log(`[d6jue-map] 归图稳定等待 ${wait}ms`);
+					sleep(wait);
+					g.d6jueMapLogTime = 0;
+				}
+				if (thisConf.logMapNodes) {
+					console.log(`[d6jue-map] 等待步数确认（${mapUpdate.reason}${mapUpdate.committed ? ',已离图' : ''}，${mapUpdate.elapsed}ms）`);
+				}
+				return false;
+			}
+			if (!mapUpdate.settled) {
+				if (rowValid && mapUpdate.waitMs > 0) {
+					const wait = Math.min(mapUpdate.waitMs, mapSettleMs);
+					if (thisConf.logMapNodes) console.log(`[d6jue-map] 地图稳定等待 ${wait}ms`);
+					sleep(wait);
+					g.d6jueMapLogTime = 0;
+				}
+				if (thisConf.logMapNodes) console.log('[d6jue-map] 等待地图稳定');
 				return false;
 			}
 
-			// 绽放固定在第 5/10/15 关，用于校正点击漂移造成的步数误差
-			const bloomIndex = g.d6jueBloomCheckpoint || 0;
-			if (bloomIndex < D6_BLOOM_STEPS.length && state.reachable.some(n => n.type === '绽放')) {
-				const expected = D6_BLOOM_STEPS[bloomIndex];
-				const beforeStepNo = D6_TOTAL_STEPS - (g.d6jueStepLeft || 0) + 1;
-				if (Math.abs(beforeStepNo - expected) <= 3) {
-					if (beforeStepNo !== expected) {
-						g.d6jueStepLeft = D6_TOTAL_STEPS - expected + 1;
-						console.log(`[d6jue-map] 绽放步数校正：${beforeStepNo}->${expected}，剩余步数=${g.d6jueStepLeft}`);
-						d6jueAnalysisLog('map.step_fix', {
-							before: beforeStepNo,
-							after: expected,
-							left: g.d6jueStepLeft,
-							nodes: state.reachable.map(n => n.type).join('/'),
+			// 正常地图行：读计数器做校验/中途接手初始化；不阻塞步数推进。
+			{
+				const counterRead = readStepCounter(rowKey, false);
+				if (counterRead.result) {
+					const counterUpdate = getStepTracker().noteCounter(
+						now(),
+						counterRead.result.value + 1,
+						counterRead.result.confidence,
+						true,
+					);
+					syncStepState();
+					logStepCounterRead(counterUpdate, counterRead.result);
+				}
+				if (getStepTracker().counterPending) {
+					if (!counterRead.result && counterRead.exhausted) {
+						// 重读预算用完仍没有第二个一致读数：放弃校准，回到地图推进为准。
+						getStepTracker().cancelCounterCandidate();
+						d6jueAnalysisLog('step.alert', {
+							kind: 'counter_wait_exhausted',
+							step: getStepTracker().stepNo,
+							left: getStepTracker().left,
 						});
+					} else {
+						// 偏低读数需要第二次确认；先不点击，避免用旧 stepLeft 给下一座岛分配 key。
+						if (thisConf.logMapNodes) console.log('[d6jue-map] 计数器偏低待确认，暂缓点击');
+						return false;
 					}
-					g.d6jueBloomCheckpoint = bloomIndex + 1;
+				}
+				if (!counterRead.result && !getStepTracker().initialized && !counterRead.exhausted) {
+					// 中途接手：还不知道真实剩余步数，等计数器连续两次一致再点。
+					if (thisConf.logMapNodes) console.log('[d6jue-map] 等待计数器初始化步数');
+					return false;
 				}
 			}
 
 			const powerLevel = g.d6juePowerLevel || 0;
 			const leiLevel = g.d6jueLeiLevel || 0;
-			const wallet = (g.d6jueWanxiangling || 0) + (g.d6jueWanxianglingPending || 0);
+			// 万相铃按每岛固定收益计算，商店/选buff 的 OCR 在检查点校验并校准。
+			// 这里的 wallet 用于实时唤息/找商店判断；同一座岛的重复命中不会重复加。
+			const wallet = g.d6jueWanxiangling || 0;
 			const powerReady = powerLevel > 2;
 			const needLei = leiLevel === 0;
 			const clearMet = powerReady && leiLevel > 0;
-			// 只剩轰雷且买得起时，临时把宁息提到最高，避免同行神秘把商店抢走
-			// 350 = 买轰雷 200 + 商店刷 3 次 150，进店即可刷满
-			const priority = needLei && powerReady && wallet >= D6_SHOP_LEI_PRICE + D6_SHOP_REFRESH_COST * D6_SHOP_REFRESH_MAX
+			// 只剩轰雷时，计算余额 >=300（买 200 + 至少刷 1 次 100）就把宁息提到最高，
+			// 避免同行神秘把商店抢走；到店后按 OCR 精确值决定是否继续刷新/购买。
+			const priority = needLei && powerReady && wallet >= D6_SHOP_LEI_PRICE + D6_SHOP_REFRESH_COST
 				? MAP_PRIORITY_SHOP_HUNT
 				: (clearMet ? MAP_PRIORITY_CLEARED : MAP_PRIORITY);
 			const choice = pickD6MapChoice(state, priority);
@@ -1095,14 +1875,14 @@ export class Func323 implements IFuncOrigin {
 			// 1. 轰雷已满足后，下一层仅 1 个可达节点且为混沌：能唤息就唤息；
 			// 2. 只剩轰雷且临近迎战、当前行没有宁息：主动唤息找宁息商店（每局最多 1 次）。
 			const singleChaos = state.reachable.length === 1 && state.reachable[0].type === '混沌';
-			if (singleChaos && huanxiBright && leiLevel > 0) {
-				return clickHuanxi('轰雷已满足，下一层仅混沌单节点', time);
+			if (singleChaos && huanxiBright && leiLevel > 0 && wallet >= D6_HUANXI_COST) {
+				return clickHuanxi('轰雷已满足，下一层仅混沌单节点', time, huanxiSig);
 			}
 
 			const stepLeft = g.d6jueStepLeft || 0;
 			const hasNingxi = state.reachable.some(n => n.type === '宁息');
-			// 剩余 <=3 步时只求买到（W>=500）；4~5 步时要求唤息后还能三刷（300+350=650）
-			const huanxiShopWallet = stepLeft <= 3 ? 500 : 650;
+			// 剩余 <=3 步时只求买到（W>=500）；4~5 步时要求唤息后还能三刷（300+200+100×3=800）
+			const huanxiShopWallet = stepLeft <= 3 ? 500 : 800;
 			if (
 				needLei && powerReady && !g.d6jueCantClear && huanxiBright && !hasNingxi
 				&& state.reachable.length < 4
@@ -1111,7 +1891,7 @@ export class Func323 implements IFuncOrigin {
 				&& wallet >= huanxiShopWallet
 				&& (g.d6jueHuanxiShop || 0) < 1
 			) {
-				if (clickHuanxi(`仅剩轰雷且无宁息(剩余${stepLeft}步)，主动唤息找商店`, time)) {
+				if (clickHuanxi(`仅剩轰雷且无宁息(剩余${stepLeft}步)，主动唤息找商店`, time, huanxiSig)) {
 					g.d6jueHuanxiShop = (g.d6jueHuanxiShop || 0) + 1;
 					return true;
 				}
@@ -1123,7 +1903,7 @@ export class Func323 implements IFuncOrigin {
 				return false;
 			}
 
-			if (doClick && time - (g.d6jueMapClickTime || 0) >= 3000) {
+			if (doClick && getStepTracker().phase === 'map' && now() - (g.d6jueLastMapSigTime || 0) >= mapRetryMs) {
 				const slotIndex = d6MapSlotIndex(choice.slot);
 				const slotOper = slotIndex >= 0 && thisOperator[53] && thisOperator[53].oper
 					? thisOperator[53].oper[slotIndex]
@@ -1132,32 +1912,141 @@ export class Func323 implements IFuncOrigin {
 					console.log(`[d6jue-map] 未找到主地图选择位: ${choice.slot}`);
 					return false;
 				}
-				applyPendingWanxiangling();
-				thisScript.regionClick([slotOper]);
-				g.d6jueMapClickTime = time;
-				g.d6jueLastMapSig = state.reachable.map(n => `${n.type}${n.x}`).join('/');
-				g.d6jueLastMapSigTime = time;
+
+				// 主场景横幅锚点：小地图只负责类型/顺序。
+				// 首点直接使用固定选择位——实测固定位首点成功率 97.4%，
+				// 而横幅锚点只有 81.8%，且每次检测要 3s+；只在固定位点击
+				// 未生效后的重试里才做横幅定位（找不到仍回退固定位）。
+				// 绽放固定位首点成功率 100%，不参与横幅重试。
+				let anchor: D6BannerAnchor | null = null;
+				let anchorMs = 0;
+				let anchorScale = 1;
+				if (retriedClick && choice.target.type !== '绽放') {
+					const devRect = D6_MAP_SLOT_DEV_RECTS[slotIndex];
+					if (devRect) {
+						const anchorStart = now();
+						try {
+							// slotOper 已经过 helperBridge.regionClickTrans，是屏幕坐标；
+							// 用它的宽度 / 开发坐标宽度得到屏幕缩放比例。
+							const scale = (slotOper[2] - slotOper[0]) / (devRect[2] - devRect[0]);
+							if (scale > 0.5 && scale < 4) {
+								anchorScale = scale;
+								const padLeft = 70;
+								const padTop = 95;
+								const padRight = 70;
+								const padBottom = 45;
+								const dx0 = Math.max(0, devRect[0] - padLeft);
+								const dy0 = Math.max(0, devRect[1] - padTop);
+								const dx1 = Math.min(1279, devRect[2] + padRight);
+								const dy1 = Math.min(719, devRect[3] + padBottom);
+								const helper = thisScript.helperBridge.helper;
+								const bannerSr = helper.GetPoint(dx0, dy0, center);
+								const bannerEr = helper.GetPoint(dx1, dy1, center);
+								if (bannerSr.x < bannerEr.x && bannerSr.y < bannerEr.y) {
+									const bitmap = helper.GetBitmap(bannerSr.x, bannerSr.y, bannerEr.x, bannerEr.y);
+									if (bitmap) {
+										try {
+											let image = bitmapToImageData(bitmap);
+											if (anchorScale > 1.08) {
+												image = downsampleD6BannerImage(image, anchorScale);
+											}
+											const localCx = (slotOper[0] + slotOper[2]) / 2 - bannerSr.x;
+											const localCy = (slotOper[1] + slotOper[3]) / 2 - bannerSr.y;
+											const det = detectD6BannerAnchor(image, [
+												localCx / anchorScale,
+												localCy / anchorScale,
+											]);
+											if (det) {
+												anchor = {
+													...det,
+													x: bannerSr.x + det.x * anchorScale,
+													y: bannerSr.y + det.y * anchorScale,
+												};
+											}
+										} finally {
+											try {
+												bitmap.recycle();
+											} catch (e) {
+												// 忽略回收异常
+											}
+										}
+									}
+								}
+							}
+						} catch (e) {
+							console.log(`[d6jue-map] 横幅锚点识别异常: ${e}`);
+						}
+						anchorMs = now() - anchorStart;
+					}
+				}
+
+				// 横幅命中时只点文字附近的小块；否则保持原来的固定窄条。
+				let clickOper: number[][];
+				if (anchor) {
+					const halfW = Math.max(D6_MAP_CLICK_HALF_W, Math.round(6 * anchorScale));
+					const halfH = Math.max(8, Math.round(8 * anchorScale));
+					clickOper = [[
+						Math.round(anchor.x) - halfW,
+						Math.round(anchor.y) - halfH,
+						Math.round(anchor.x) + halfW,
+						Math.round(anchor.y) + halfH,
+						slotOper[4] || 500,
+					]];
+				} else {
+					// 只点选择位中心附近的窄条，避免随机点落到岛屿/水面
+					const clickCx = Math.round((slotOper[0] + slotOper[2]) / 2);
+					clickOper = [[
+						clickCx - D6_MAP_CLICK_HALF_W,
+						slotOper[1],
+						clickCx + D6_MAP_CLICK_HALF_W,
+						slotOper[3],
+						slotOper[4] || 500,
+					]];
+				}
 				const stepLeftBefore = g.d6jueStepLeft || 0;
-				const stepNo = D6_TOTAL_STEPS - stepLeftBefore + 1;
+				const stepNo = getStepTracker().stepNo;
+				const islandSeq = getStepTracker().nextIslandSeq;
+				// 岛屿 key 用独立自增序号：即使 stepLeft 短暂滞后/校正，同一座岛也不会复用旧 key。
+				// 点击失败重试时 islandSeq 不变，本岛 +50 仍然只记一次。
+				beginIsland(`step:${islandSeq}`);
+				thisScript.regionClick(clickOper);
+				getStepTracker().noteClick(now(), rowKey, lastMapHash);
+				syncStepState();
+				g.d6jueLastMapSig = rowKey;
+				g.d6jueLastMapSigTime = now();
+				// 新点击开始一轮 pending 重读预算
+				stepCounterRead = null;
 				d6jueAnalysisLog('map.step', {
 					step: stepNo,
 					left: stepLeftBefore,
+					seq: islandSeq,
 					nodes: state.reachable.map(n => n.type).join('/'),
 					target: choice.target.type,
 					slot: choice.slot,
+					clickX1: clickOper[0][0],
+					clickY1: clickOper[0][1],
+					clickX2: clickOper[0][2],
+					clickY2: clickOper[0][3],
+					anchor: anchor ? 'banner' : 'fixed',
+					anchorMs,
+					anchorX: anchor ? Math.round(anchor.x) : 0,
+					anchorY: anchor ? Math.round(anchor.y) : 0,
+					anchorW: anchor ? Math.round(anchor.w) : 0,
+					anchorH: anchor ? Math.round(anchor.h) : 0,
+					anchorScore: anchor ? Number(anchor.score.toFixed(3)) : 0,
 					mode: priority === MAP_PRIORITY_SHOP_HUNT ? 'hunt' : (clearMet ? 'cleared' : 'normal'),
 					wallet: g.d6jueWanxiangling || 0,
 					pending: g.d6jueWanxianglingPending || 0,
 					lei: leiLevel,
 					power: powerLevel,
 				});
-				if (choice.target.type === '绽放' && stepLeftBefore > 0 && [5, 10, 15].indexOf(stepNo) === -1) {
-					console.log(`[d6jue-map] 绽放出现在第${stepNo}步（预期5/10/15），请检查步数记录`);
+				if (choice.target.type === '绽放' && stepLeftBefore > 0 && [5, 10, 15, 20].indexOf(stepNo) === -1) {
+					console.log(`[d6jue-map] 绽放出现在第${stepNo}步（预期5/10/15/20），请检查步数记录`);
 				}
-				if (stepLeftBefore > 0) {
-					g.d6jueStepLeft = stepLeftBefore - 1;
-				}
-				console.log(`[d6jue-map] 点击 ${choice.target.type}@${d6MapColName(choice.target.col)}，主地图选择位=${choice.slot}(${choice.index + 1}/${choice.count})，剩余${g.d6jueStepLeft || 0}步`);
+				const anchorText = anchor
+					? `横幅锚点=${Math.round(anchor.x)},${Math.round(anchor.y)}(${anchor.w}x${anchor.h},score=${anchor.score.toFixed(2)},${anchorMs}ms)`
+					: `固定选择位(${anchorMs}ms)`;
+				console.log(`[d6jue-map] 点击 ${choice.target.type}@${d6MapColName(choice.target.col)}，主地图选择位=${choice.slot}(${choice.index + 1}/${choice.count})，${anchorText}，点击区=${clickOper[0][0]},${clickOper[0][1]}-${clickOper[0][2]},${clickOper[0][3]}，剩余${stepLeftBefore}步（待确认）`);
 				return true;
 			}
 			console.log('[d6jue-map] 点击冷却中');
@@ -1171,6 +2060,7 @@ export class Func323 implements IFuncOrigin {
 			unknownMapNotified = false;
 			bossDetectLogged = false;
 			shopGridMissLogged = false;
+			shopEnterTime = 0;
 			mapStateCache = null;
 			g.d6jueLoop = 0;
 			g.d6jueCoreBuff = 0;
@@ -1188,18 +2078,38 @@ export class Func323 implements IFuncOrigin {
 			g.d6jueShopBuyTime = 0;
 			g.d6jueWanxiangling = 0;
 			g.d6jueWanxianglingPending = 0;
+			lastWalletOcrTime = 0;
+			d6IslandKey = '';
+			d6IslandGainDone = false;
+			d6PendingRefreshCost = 0;
+			d6PendingRefreshSource = '';
+			d6PendingRefreshWalletBefore = 0;
+			d6PendingRefreshTime = 0;
+			d6HuanxiPending = false;
+			d6HuanxiPendingTime = 0;
+			d6HuanxiPendingSig = '';
 			g.d6jueStepLeft = D6_TOTAL_STEPS;
 			g.d6jueHuanxiShop = 0;
+			buffSelectLockActive = false;
+			buffSelectLockUntil = 0;
 			g.d6jueLastMapSig = '';
 			g.d6jueLastMapSigTime = 0;
-			g.d6jueBloomCheckpoint = 0;
+			g.d6jueStepPending = false;
+			lastMapHash = '';
+			stepCounterRead = null;
+			stepTracker = new D6StepTracker({ totalSteps: D6_TOTAL_STEPS });
+			stepTracker.reset(D6_TOTAL_STEPS, true, now());
+			syncStepState();
 			g.d6jueCurrentBegin = now();
+			g.d6jueBossStartTime = 0;
 			if (!g.d6jueBegin) {
 				g.d6jueBegin = now();
 			}
 			g.d6jueTimes = (g.d6jueTimes || 0) + 1;
 			d6jueAnalysisSetRun(now());
+			d6jueAnalysisLog('step.init', { left: D6_TOTAL_STEPS, mode: 'run_reset' });
 			d6jueAnalysisLog('run.start', {
+				ver: D6_LOGIC_VERSION,
 				times: g.d6jueTimes || 0,
 				step: g.d6jueStepLeft || 0,
 				wallet: 0,
@@ -1272,22 +2182,23 @@ export class Func323 implements IFuncOrigin {
 		}
 
 		// ---- 获得奖励界面：优先点掉，避免奖励弹窗遮挡后续判定 ----
+		// 首领结算的「获得奖励」由退出结算流程处理；这里不加 54，避免重复维护两套标题取色。
 		if (oper([42], '六道觉_获得奖励界面')) return true;
 
 		// ---- 绽放之屿：右下角直接离开，不进入战斗 ----
 		if (oper([45], '六道觉_绽放_离开', 500)) {
 			console.log('[d6jue] 绽放离开按钮命中');
-			addWanxiangling(50, '绽放退出');
+			addIslandGainOnce('绽放岛');
 			return true;
 		}
 
 		// ---- 神秘之屿：退出后 +50 ----
 		if (oper([17], '六道觉_神秘_转换')) {
-			addWanxiangling(50, '神秘转换退出');
+			addIslandGainOnce('神秘岛');
 			return true;
 		}
 		if (oper([43], '六道觉_神秘_仿造')) {
-			addWanxiangling(50, '神秘仿造退出');
+			addIslandGainOnce('神秘岛');
 			return true;
 		}
 
@@ -1295,14 +2206,57 @@ export class Func323 implements IFuncOrigin {
 		if (oper([51], '六道觉_万象赐福使用')) return true;
 
 		// ---- 混沌之屿-幸运秘宝：优先于精英判定 ----
-		if (oper([47], '六道觉_混沌_幸运秘宝')) {
-			addWanxiangling(50, '混沌秘宝退出');
+		// 47 的秘宝专属点是宝匣/离开按钮的渐变色，不是纯色；运行时全局
+		// colorSimilar 可能设得很高（例如 100），用 thisScript.oper 会把
+		// 2~4 的通道差也判失败，导致 47 漏判、46 按标题命中后反复点宝匣。
+		// 这里固定用 88（与事件用例一致）直接比较，命中后点「离开」。
+		{
+			const chestOp = thisOperator[47];
+			if (chestOp && chestOp.desc && chestOp.oper) {
+				const chestStart = now();
+				const chestMatched = thisScript.helperBridge.helper.CompareColorEx(
+					chestOp.desc,
+					D6_CHEST_SIMILAR,
+					false,
+				);
+				perfLog('oper 六道觉_混沌_幸运秘宝', now() - chestStart, `matched=${chestMatched} similar=${D6_CHEST_SIMILAR}`);
+				if (chestMatched) {
+					noteStepIsland('chest');
+					thisScript.regionClick(chestOp.oper);
+					addIslandGainOnce('混沌岛');
+					d6jueAnalysisLog('map.chest_exit', {
+						step: D6_TOTAL_STEPS - (g.d6jueStepLeft || 0) + 1,
+						wallet: g.d6jueWanxiangling || 0,
+						lei: g.d6jueLeiLevel || 0,
+						power: g.d6juePowerLevel || 0,
+					});
+					console.log('[d6jue] 混沌秘宝命中，点击离开');
+					return true;
+				}
+			}
+		}
+
+		// ---- 通用挑战按钮：必须放在混沌精英 46 之前 ----
+		// 混沌精英选中后左上角「混沌之屿」标题仍然匹配 46；如果先走 46，
+		// 会反复点精英，永远点不到右下角「挑战」。
+		// 最后 1~2 步留给下面的首领专用 50/条件检查，避免绕过通关条件。
+		if ((g.d6jueStepLeft || 0) > 2 && oper([20], '六道觉_挑战')) {
+			d6jueAnalysisLog('map.challenge_early', {
+				step: D6_TOTAL_STEPS - (g.d6jueStepLeft || 0) + 1,
+				left: g.d6jueStepLeft || 0,
+				wallet: g.d6jueWanxiangling || 0,
+				lei: g.d6jueLeiLevel || 0,
+				power: g.d6juePowerLevel || 0,
+			});
+			console.log('[d6jue] 通用挑战按钮命中，点击挑战');
+			addIslandGainOnce('鏖战岛');
 			return true;
 		}
 
 		// ---- 混沌之屿-精英：优先点击 ----
 		if (oper([46], '六道觉_混沌_精英')) {
-			addWanxiangling(50, '混沌精英挑战');
+			// 精英选择后还会经过通用挑战按钮，每岛 +50 只记一次
+			addIslandGainOnce('混沌精英岛');
 			return true;
 		}
 
@@ -1312,11 +2266,12 @@ export class Func323 implements IFuncOrigin {
 			g.d6jueWanxiangling = Math.max(0, (g.d6jueWanxiangling || 0) - D6_SHOP_LEI_PRICE);
 			g.d6jueShopBuyPending = false;
 			g.d6jueShopBuyStage = 0;
-			console.log(`[d6jue-shop] 购买轰雷成功(${how})，万相铃=${g.d6jueWanxiangling}`);
+			console.log(`[d6jue-shop] 购买轰雷成功(${how})，当前计算余额=${g.d6jueWanxiangling}（等下一次OCR校验）`);
 			d6jueAnalysisLog('shop.buy_success', {
 				how,
 				stock: (g.d6jueShopRefresh || 0) + 1,
 				wallet: g.d6jueWanxiangling || 0,
+				cost: D6_SHOP_LEI_PRICE,
 				step: g.d6jueStepLeft || 0,
 				lei: 1,
 				power: g.d6juePowerLevel || 0,
@@ -1335,7 +2290,7 @@ export class Func323 implements IFuncOrigin {
 				power: g.d6juePowerLevel || 0,
 			});
 			thisScript.regionClick([[1200, 610, 1245, 660, 1500]]);
-			addWanxiangling(50, '宁息退出');
+			addIslandGainOnce('宁息岛');
 			g.d6jueShopRefresh = 0;
 			shopGridMissLogged = false;
 		};
@@ -1389,6 +2344,19 @@ export class Func323 implements IFuncOrigin {
 			operator: [thisOperator[13]],
 		}, thisScript.scheme.commonConfig);
 		if (shopDetected) {
+			noteStepIsland('shop');
+			if (!shopEnterTime) {
+				shopEnterTime = now();
+				console.log('[d6jue-shop] 进入商店');
+				d6jueAnalysisLog('shop.enter', {
+					step: g.d6jueStepLeft || 0,
+					wallet: g.d6jueWanxiangling || 0,
+					pending: g.d6jueWanxianglingPending || 0,
+					lei: g.d6jueLeiLevel || 0,
+					power: g.d6juePowerLevel || 0,
+				});
+			}
+			readWanxianglingOcr('shop');
 			const leiLevel = g.d6jueLeiLevel || 0;
 			if (leiLevel < 1) {
 				const wanxiangling = g.d6jueWanxiangling || 0;
@@ -1481,23 +2449,56 @@ export class Func323 implements IFuncOrigin {
 					name: '六道觉_商店刷新检测',
 					operator: [thisOperator[52]],
 				}, thisScript.scheme.commonConfig);
-				// 刷新后仍要保留 200 买轰雷：只要扣 50 后还 >=200 就可以继续刷
+				// 刷新后仍要保留 200 买轰雷：商店刷新 100/次
 				const canKeepLeiPrice = wanxiangling - D6_SHOP_REFRESH_COST >= D6_SHOP_LEI_PRICE;
 				if (refreshAvailable && canKeepLeiPrice && (g.d6jueShopRefresh || 0) < D6_SHOP_REFRESH_MAX) {
 					thisScript.regionClick([[595, 600, 640, 645, 1500]]);
 					g.d6jueShopRefresh = (g.d6jueShopRefresh || 0) + 1;
-					g.d6jueWanxiangling = wanxiangling - D6_SHOP_REFRESH_COST;
-					console.log(`[d6jue-shop] 未见轰雷，万相铃=${wanxiangling}，刷新第${g.d6jueShopRefresh}次(-${D6_SHOP_REFRESH_COST}，保留${D6_SHOP_LEI_PRICE}购买)，剩余=${g.d6jueWanxiangling}`);
+					// 刷新费等下一次 OCR 校验；OCR 关闭时才直接扣
+					beginPendingRefreshCost(D6_SHOP_REFRESH_COST, 'shop_refresh', wanxiangling);
+					console.log(`[d6jue-shop] 未见轰雷，万相铃=${wanxiangling}，刷新第${g.d6jueShopRefresh}次(-${D6_SHOP_REFRESH_COST}，保留${D6_SHOP_LEI_PRICE}购买)，当前=${g.d6jueWanxiangling}（等OCR校验）`);
 					d6jueAnalysisLog('shop.refresh', {
 						stock: g.d6jueShopRefresh,
 						walletBefore: wanxiangling,
 						walletAfter: g.d6jueWanxiangling || 0,
+						cost: D6_SHOP_REFRESH_COST,
+						costPending: thisConf.walletOcr !== false ? 1 : 0,
 						step: g.d6jueStepLeft || 0,
 						lei: g.d6jueLeiLevel || 0,
 					});
 					return true;
 				}
-				console.log(`[d6jue-shop] 未见轰雷且无法刷新(万相铃=${wanxiangling}，刷新${g.d6jueShopRefresh || 0}次)，退出商店`);
+				// 刚进店时刷新按钮可能还没稳定渲染，给一次重试，避免误判为无法刷新
+				if (!refreshAvailable && now() - shopEnterTime < 900) {
+					console.log('[d6jue-shop] 刷新按钮未识别，等待界面稳定后重试');
+					return false;
+				}
+				// 诊断：钱够、没轰雷且没有刷新按钮时留一张商店截图
+				if (thisConf.walletOcr !== false && wanxiangling >= D6_SHOP_LEI_PRICE) {
+					try {
+						const dir = context.getExternalFilesDir(null);
+						if (dir) {
+							const img = images.captureScreen();
+							if (img) {
+								const shot = `${dir.getAbsolutePath()}/d6jue_shop_nohit_${g.d6jueTimes || 0}_${g.d6jueStepLeft || 0}_${now()}.png`;
+								images.save(img, shot);
+								img.recycle();
+								console.log(`[d6jue-shop] 无货退出截图: ${shot}`);
+								d6jueAnalysisLog('shop.nohit_shot', {
+									path: shot,
+									step: g.d6jueStepLeft || 0,
+									wallet: wanxiangling,
+									refresh: refreshAvailable ? 1 : 0,
+									refreshCount: g.d6jueShopRefresh || 0,
+									canKeep: canKeepLeiPrice ? 1 : 0,
+								});
+							}
+						}
+					} catch (e) {
+						// 截图失败不影响退出
+					}
+				}
+				console.log(`[d6jue-shop] 未见轰雷且无法刷新(万相铃=${wanxiangling}，刷新${g.d6jueShopRefresh || 0}次，刷新识别=${refreshAvailable ? 1 : 0})，退出商店`);
 				d6jueAnalysisLog('shop.exit', {
 					reason: 'no_hit',
 					stock: (g.d6jueShopRefresh || 0) + 1,
@@ -1505,6 +2506,9 @@ export class Func323 implements IFuncOrigin {
 					step: g.d6jueStepLeft || 0,
 					lei: g.d6jueLeiLevel || 0,
 					power: g.d6juePowerLevel || 0,
+					refresh: refreshAvailable ? 1 : 0,
+					refreshCount: g.d6jueShopRefresh || 0,
+					canKeep: canKeepLeiPrice ? 1 : 0,
 				});
 			} else {
 				console.log('[d6jue-shop] 轰雷已满足，退出商店');
@@ -1518,11 +2522,12 @@ export class Func323 implements IFuncOrigin {
 				});
 			}
 			thisScript.regionClick([[1200, 610, 1245, 660, 1500]]);
-			addWanxiangling(50, '宁息退出');
+			addIslandGainOnce('宁息岛');
 			g.d6jueShopRefresh = 0;
 			g.d6jueShopBuyPending = false;
 			g.d6jueShopBuyStage = 0;
 			shopGridMissLogged = false;
+			shopEnterTime = 0;
 			return true;
 		}
 
@@ -1554,6 +2559,17 @@ export class Func323 implements IFuncOrigin {
 			operator: [thisOperator[50]],
 		}, thisScript.scheme.commonConfig);
 		if (bossDetected) {
+			// 首领是最后一回合：直接置 0，不依赖点击确认。
+			const bossHadPending = !!g.d6jueStepPending;
+			if (stepTracker) {
+				stepTracker.noteBoss();
+				syncStepState();
+			}
+			g.d6jueStepLeft = 0;
+			g.d6jueStepPending = false;
+			if (bossHadPending) {
+				d6jueAnalysisLog('map.step_confirm', { left: g.d6jueStepLeft, nodes: 'boss', reason: 'boss' });
+			}
 			const powerLevel = g.d6juePowerLevel || 0;
 			const leiLevel = g.d6jueLeiLevel || 0;
 			d6jueAnalysisLog('boss.enter', {
@@ -1580,53 +2596,80 @@ export class Func323 implements IFuncOrigin {
 				thisScript.rerun('__停止脚本__');
 				return true;
 			}
+			if (!g.d6jueBossStartTime) g.d6jueBossStartTime = now();
 			thisScript.oper({ id: 323, name: '六道觉_首领挑战', operator: [thisOperator[50]] });
 			return true;
 		}
 
 		// ---- 挑战按钮：放在鏖战前，避免挑战界面仍带着地图点位时误点怪物 ----
-		// 诊断：首领专用 operator[50] 未命中时，检查通用挑战按钮是否命中。
-		// 若这里命中且剩余步数 <=2，很可能就是首领挑战被通用按钮误点。
-		if (!bossDetectLogged && (g.d6jueStepLeft || 0) <= 2) {
+		// 首领专用 operator[50] 未命中时，用通用挑战按钮兜底：
+		// 1. 挑战界面出现只作为“已进岛”证据，步数仍由下一次稳定地图/计数器下降确认；
+		// 2. 最后一步且条件不足时，不再点通用挑战，直接停止。
+		if ((g.d6jueStepLeft || 0) <= 2) {
 			const challengeDetected = thisScript.desc({
 				id: 323,
 				name: '六道觉_挑战检测',
 				operator: [thisOperator[20]],
 			}, thisScript.scheme.commonConfig);
 			if (challengeDetected) {
-				bossDetectLogged = true;
+				noteStepIsland('challenge_detect');
 				const power = g.d6juePowerLevel || 0;
 				const lei = g.d6jueLeiLevel || 0;
 				const cantClear = !!g.d6jueCantClear;
-				d6jueAnalysisLog('boss.detect', {
-					step: g.d6jueStepLeft || 0,
-					power,
-					lei,
-					cantClear,
-					boss50: 0,
-					challenge20: 1,
-				});
-				console.log(`[d6jue-boss] 首领专用desc未命中，但通用挑战按钮命中(剩余${g.d6jueStepLeft || 0}步，力量=${power} 轰雷=${lei} 无法通关=${cantClear})`);
+				if (!bossDetectLogged) {
+					bossDetectLogged = true;
+					d6jueAnalysisLog('boss.detect', {
+						step: g.d6jueStepLeft || 0,
+						power,
+						lei,
+						cantClear,
+						boss50: 0,
+						challenge20: 1,
+					});
+					console.log(`[d6jue-boss] 首领专用desc未命中，但通用挑战按钮命中(剩余${g.d6jueStepLeft || 0}步，力量=${power} 轰雷=${lei} 无法通关=${cantClear})`);
+				}
+				if ((g.d6jueStepLeft || 0) <= 0 && (power <= 2 || lei <= 0 || cantClear)) {
+					const flag = cantClear ? '（无法通关标记=T）' : '';
+					const msg = `已到首领且通关条件不足${flag}：力量=${power} 轰雷=${lei}，结束脚本`;
+					console.log('[d6jue] ' + msg);
+					d6jueAnalysisLog('boss.guard', {
+						step: g.d6jueStepLeft || 0,
+						power,
+						lei,
+						cantClear,
+					});
+					thisScript.myToast(msg);
+					thisScript.rerun('__停止脚本__');
+					return true;
+				}
+				// 通用挑战 20 在最后一行可能只是普通战斗（本局 0 步时出现过），
+				// 不能在这里启动首领 60 秒计时；计时只在真正命中 operator[50] 时启动。
 			}
 		}
 		if (oper([20], '六道觉_挑战')) {
-			addWanxiangling(50, '鏖战挑战');
+			addIslandGainOnce('鏖战岛');
 			return true;
 		}
 
 		// ---- 鏖战-选择怪物：进入鏖战之屿后点右侧敌人；主地图节点由 operator[53] 固定选择位处理 ----
-		if (oper([38], '六道觉_鏖战_选择怪物')) return true;
+		if (oper([38], '六道觉_鏖战_选择怪物')) {
+			addIslandGainOnce('鏖战岛');
+			return true;
+		}
 
 		// ---- 舞技强化-选择强化：优先于刷新门禁，避免选强化界面被当成舞技强化入口 ----
 		if (oper([41], '六道觉_舞技强化-选择强化')) {
+			if (buffSelectLocked()) return true;
 			const powerBefore = g.d6juePowerLevel || 0;
 			g.d6juePowerLevel = powerBefore + 1;
-			addPendingWanxiangling(100, '舞技强化选择');
+			lockBuffSelect();
+			addWanxiangling(D6_ISLAND_BUFF_GAIN, '舞技强化选择');
 			d6jueAnalysisLog('skill.pick', {
 				powerBefore,
 				powerAfter: g.d6juePowerLevel,
 				wallet: g.d6jueWanxiangling || 0,
 				lei: g.d6jueLeiLevel || 0,
+				island: d6IslandKey,
 				step: g.d6jueStepLeft || 0,
 			});
 			return true;
@@ -1635,6 +2678,8 @@ export class Func323 implements IFuncOrigin {
 		// ---- 舞技强化/buff选择：右下角「刷新」表示该界面（亮/暗都识别）----
 		const refreshDark = oper([49], '六道觉_舞技强化_刷新_暗');
 		if (oper([39], '六道觉_舞技强化_刷新') || refreshDark) {
+			addIslandGainOnce('战斗岛');
+			readWanxianglingOcr('buff');
 			const powerLevel = g.d6juePowerLevel || 0;
 			const leiLevel = g.d6jueLeiLevel || 0;
 			const powerSelectable = powerLevel < 10;
@@ -1732,6 +2777,24 @@ export class Func323 implements IFuncOrigin {
 			return false;
 		}
 
+		// ---- 战斗失败：放弃前行 / 确定放弃 ----
+		if (oper([24], '六道觉_战斗失败_放弃前行')) {
+			d6jueAnalysisLog('battle.fail', {
+				stage: 'giveup',
+				step: g.d6jueStepLeft || 0,
+				power: g.d6juePowerLevel || 0,
+				lei: g.d6jueLeiLevel || 0,
+			});
+			return true;
+		}
+		if (oper([25], '六道觉_战斗失败_确定放弃')) {
+			d6jueAnalysisLog('battle.fail', {
+				stage: 'confirm',
+				step: g.d6jueStepLeft || 0,
+			});
+			return true;
+		}
+
 		// ---- 其余单步操作：已取色的状态统一执行 ----
 		// 21/22 为双倍确认弹窗的两个按钮，默认都启用（与 316 一致），可按需删减
 		if (oper([
@@ -1743,6 +2806,8 @@ export class Func323 implements IFuncOrigin {
 
 		// ---- 结算：统计、推送、切换方案（放在最后，先关掉奖励弹窗再统计）----
 		if (oper([28], '六道觉_结算_完成')) {
+			// 一轮已经跑完：清空首领计时，避免结算/奖励界面停留时被 60 秒超时误停。
+			g.d6jueBossStartTime = 0;
 			thisConf.overTimes = Math.floor(Number(thisConf.overTimes) || 0);
 			const time = now();
 			const currentCost = Math.floor((time - (g.d6jueCurrentBegin || time)) / 1000); // 秒
@@ -1750,7 +2815,7 @@ export class Func323 implements IFuncOrigin {
 				result: 'clear',
 				step: g.d6jueStepLeft || 0,
 				wallet: g.d6jueWanxiangling || 0,
-				pending: g.d6jueWanxianglingPending || 0,
+				pending: 0,
 				lei: g.d6jueLeiLevel || 0,
 				power: g.d6juePowerLevel || 0,
 				seconds: currentCost,

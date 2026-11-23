@@ -6,8 +6,11 @@
  * - 写入失败不影响主流程；
  * - 与 d6jue_perf.log 不同，本文件不覆盖，多次运行会按时间顺序累积。
  *
- * 建议每轮开始前删除旧文件，或直接按时间戳截取本轮数据。
+ * 每次脚本进程启动的第一条日志是 session 头，带 ver=<策略版本>，
+ * 这样即使没有 run.start 也能判断设备上跑的是哪一版。
  */
+
+import { D6_LOGIC_VERSION } from './d6jueVersion';
 
 let sessionStarted = false;
 let currentRun = 0;
@@ -32,7 +35,7 @@ export function d6jueAnalysisLog(event: string, data?: { [key: string]: string |
 		if (!path) return;
 		if (!sessionStarted) {
 			sessionStarted = true;
-			files.append(path, `=== d6jue analysis session ${new Date().toISOString()} ===\n`);
+			files.append(path, `=== d6jue analysis session ${new Date().toISOString()} ver=${D6_LOGIC_VERSION} ===\n`);
 		}
 		const parts: string[] = [];
 		if (data) {

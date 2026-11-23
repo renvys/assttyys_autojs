@@ -1,6 +1,8 @@
 /**
  * 六道觉（323）右上角小地图识别与地图结构推断。
  *
+ * 修改识别逻辑后必须运行 `npm run test:d6jue-map`，用例见 tools/d6jueMap/test/。
+ *
  * 设计目标：
  * 1. 每个岛屿只维护“图标本身”的模板；图标出现在任意行列都用同一份模板识别，
  *    不再按节点排列、按行列位置分别取色。
@@ -626,8 +628,8 @@ function findPin(img: DevImage): D6MapPin | null {
  * 1. 只扫描金色密度找候选，步长 2，减少一半候选点；
  * 2. 先算每个候选的平均亮度，只保留亮色（可进入）节点；
  * 3. 亮色节点按行分组，只取最上面一排（当前节点徽记在下方）；
- * 4. 只对这一排做亮色模板 NCC：先只算各模板中心分数，取前两名再做 ±3 精搜，
- *    不再对全部模板都做 49 个偏移；暗色模板和整张图的模板匹配都不做。
+ * 4. 只对这一排做亮色模板 NCC：先对每个模板做 3×3 粗搜排名，取前两名再做 ±3 精搜；
+ *    暗色模板和整张图的模板匹配都不做。
  */
 function detectNodes(img: DevImage): D6MapNode[] {
 	const ii = buildGoldIntegral(img);
@@ -711,24 +713,32 @@ function detectNodes(img: DevImage): D6MapNode[] {
 	const nodes: D6MapNode[] = [];
 	for (let k = 0; k < choiceRow.items.length; k++) {
 		const c = choiceRow.items[k];
-		// 两段式 NCC：先只算各模板中心分数，取前两名再做 ±3 精搜。
-		// 金色重心已经把图标拉正，中心分数足以筛掉错误模板；保留前两名是为了
-		// 防止 1~2px 偏移导致正确模板排名第三。
-		const centerRanked: { score: number; template: IconTemplate }[] = [];
+		// 两段式 NCC：先对每个模板做 3×3 粗搜（偏移 -3/0/3）得到排名，取前两名再做 ±3 精搜。
+		// 不能只按中心点排名：图标重心偏 2~3px 时，正确模板在中心分数可能很低，
+		// 会被排到第三名之后，导致绽放等图标被误判为 unknown。
+		const coarseOffsets = [-3, 0, 3];
+		const coarseRanked: { score: number; template: IconTemplate }[] = [];
 		for (let t = 0; t < templates.length; t++) {
 			const tpl = templates[t];
-			centerRanked.push({ score: nccScore(img, tpl, c.cx, c.cy), template: tpl });
+			let coarseScore = -2;
+			for (let oy = 0; oy < coarseOffsets.length; oy++) {
+				for (let ox = 0; ox < coarseOffsets.length; ox++) {
+					const score = nccScore(img, tpl, c.cx + coarseOffsets[ox], c.cy + coarseOffsets[oy]);
+					if (score > coarseScore) coarseScore = score;
+				}
+			}
+			coarseRanked.push({ score: coarseScore, template: tpl });
 		}
-		centerRanked.sort((a, b) => b.score - a.score);
-		const refineCount = Math.min(2, centerRanked.length);
+		coarseRanked.sort((a, b) => b.score - a.score);
+		const refineCount = Math.min(2, coarseRanked.length);
 		let best: { score: number; template: IconTemplate; x: number; y: number } = {
 			score: -2,
-			template: centerRanked[0].template,
+			template: coarseRanked[0].template,
 			x: c.cx,
 			y: c.cy,
 		};
 		for (let r = 0; r < refineCount; r++) {
-			const tpl = centerRanked[r].template;
+			const tpl = coarseRanked[r].template;
 			for (let dy = -3; dy <= 3; dy++) {
 				for (let dx = -3; dx <= 3; dx++) {
 					const score = nccScore(img, tpl, c.cx + dx, c.cy + dy);
