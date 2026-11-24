@@ -87,7 +87,6 @@ export type globalRootType = {
 	shangyushe: boolean;//    是否已上过预设
 	d6Loop: number;//     椒图事件点击循环数
 	d6RouFeng: number;//     椒图柔风实时buff数
-	d6jueLoop: number;//     六道觉事件点击循环数
 	d6jueStarted: boolean;// 六道觉是否已由脚本点击「开启」进入本局
 	d6jueStartPrompted: boolean;// 六道觉未开启时是否已提示
 	d6jueCantClear: boolean;// 六道觉本局已判定无法通关（T）
@@ -98,13 +97,8 @@ export type globalRootType = {
 	d6jueBossStartTime: number;// 六道觉首领战开始时间（用于超时停止）
 	d6jueMapLogTime: number;// 六道觉小地图节点日志上次输出时间
 	d6jueMapClickTime: number;// 六道觉主地图节点上次点击时间
-	d6jueLastMapSig: string;// 六道觉上次点击时的节点行签名（防同一屏重复点击）
 	d6jueLastMapSigTime: number;// 六道觉上次点击时的节点行签名时间
 	d6jueStepPending: boolean;// 六道觉最近一次地图点击是否等待确认推进
-	d6jueLastSeenSig: string;// 六道觉当前地图行签名（用于入场稳定等待）
-	d6jueMapFirstSeenTime: number;// 六道觉当前地图行首次看到时间
-	d6jueBloomCheckpoint: number;// 六道觉已看到的绽放检查点（0=未到5，1=5，2=10，3=15）
-	d6jueSkillCount: number;// 六道觉舞技强化次数
 	d6jueLeiLevel: number;// 六道觉六道轰雷等级
 	d6jueOtherBuffSelected: boolean;// 六道觉是否选择过其他buff（boss战前需卸载）
 	d6juePowerLevel: number;// 六道觉力量等级，初始为0
@@ -116,7 +110,6 @@ export type globalRootType = {
 	d6jueShopBuyStage: number;// 六道觉购买阶段：1=等确认弹窗，2=已点确认等待校验
 	d6jueShopBuyTime: number;// 六道觉购买阶段开始时间
 	d6jueWanxiangling: number;// 六道觉万相铃计算值（每岛固定收益 + OCR校准）
-	d6jueWanxianglingPending: number;// 六道觉已废弃：改为按岛记账后不再使用，保留字段兼容
 	d6jueStepLeft: number;// 六道觉剩余步数（孔雀国共20步）
 	d6jueHuanxiShop: number;// 六道觉本局主动唤息找商店次数
 	upYuHun: boolean;//      强化御魂记录界面次数
@@ -270,7 +263,6 @@ export const globalRoot: globalRootType = {
 	shangyushe: true,
 	d6Loop: 0,
 	d6RouFeng: 1,
-	d6jueLoop: 0,
 	d6jueStarted: false,
 	d6jueStartPrompted: false,
 	d6jueCantClear: false,
@@ -281,13 +273,8 @@ export const globalRoot: globalRootType = {
 	d6jueBossStartTime: 0,
 	d6jueMapLogTime: 0,
 	d6jueMapClickTime: 0,
-	d6jueLastMapSig: '',
 	d6jueLastMapSigTime: 0,
 	d6jueStepPending: false,
-	d6jueLastSeenSig: '',
-	d6jueMapFirstSeenTime: 0,
-	d6jueBloomCheckpoint: 0,
-	d6jueSkillCount: 0,
 	d6jueLeiLevel: 0,
 	d6jueOtherBuffSelected: false,
 	d6juePowerLevel: 0,
@@ -299,7 +286,6 @@ export const globalRoot: globalRootType = {
 	d6jueShopBuyStage: 0,
 	d6jueShopBuyTime: 0,
 	d6jueWanxiangling: 0,
-	d6jueWanxianglingPending: 0,
 	d6jueStepLeft: 20,
 	d6jueHuanxiShop: 0,
 	upYuHun: false,

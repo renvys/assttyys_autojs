@@ -67,7 +67,6 @@ export interface D6StepUpdate {
 	waitMs: number;
 	confirmed: boolean;
 	retry: boolean;
-	wait: boolean;
 	reason: string;
 	evidence: string;
 	elapsed: number;
@@ -307,7 +306,7 @@ export class D6StepTracker {
 			this.returnSince = 0;
 			this.clearCounterCandidate();
 			this.clearHigherCandidate();
-			return this.makeUpdate(beforeLeft, false, false, true, 'invalid', alerts, time);
+			return this.makeUpdate(beforeLeft, false, false, 'invalid', alerts, time);
 		}
 
 		this.currentBloomValue = !!obs.bloom;
@@ -341,9 +340,9 @@ export class D6StepTracker {
 					const evidence = this.evidenceValue || 'island';
 					const pendingElapsed = time - this.pendingTime;
 					this.consumeStep();
-					return this.makeUpdate(beforeLeft, true, false, false, evidence, alerts, time, true, pendingElapsed);
+					return this.makeUpdate(beforeLeft, true, false, evidence, alerts, time, true, pendingElapsed);
 				}
-				return this.makeUpdate(beforeLeft, false, false, true, 'return_wait', alerts, time, false);
+				return this.makeUpdate(beforeLeft, false, false, 'return_wait', alerts, time, false);
 			}
 
 			if (sameRow) {
@@ -351,9 +350,9 @@ export class D6StepTracker {
 				if (stable && elapsed >= retryAfter) {
 					this.clearPending();
 					if (hashChanged) alerts.push('retry_hash_changed');
-					return this.makeUpdate(beforeLeft, false, true, false, 'click_failed', alerts, time, undefined, elapsed);
+					return this.makeUpdate(beforeLeft, false, true, 'click_failed', alerts, time, undefined, elapsed);
 				}
-				return this.makeUpdate(beforeLeft, false, false, true, hashChanged ? 'animating' : 'pending', alerts, time);
+				return this.makeUpdate(beforeLeft, false, false, hashChanged ? 'animating' : 'pending', alerts, time);
 			}
 
 			// 地图行已变化但没有岛屿证据：先等稳定，超过 weakRowMs 才弱确认。
@@ -364,15 +363,15 @@ export class D6StepTracker {
 				this.consumeStep();
 				this.weakSnapshot = snapshot;
 				alerts.push('weak_row_confirm');
-				return this.makeUpdate(beforeLeft, true, false, false, 'weak_row', alerts, time, undefined, elapsed);
+				return this.makeUpdate(beforeLeft, true, false, 'weak_row', alerts, time, undefined, elapsed);
 			}
-			return this.makeUpdate(beforeLeft, false, false, true, 'row_changed_wait', alerts, time);
+			return this.makeUpdate(beforeLeft, false, false, 'row_changed_wait', alerts, time);
 		}
 
 		if (stable && obs.bloom) {
 			this.applyBloomCheck(alerts);
 		}
-		return this.makeUpdate(beforeLeft, false, false, !stable, 'map', alerts, time);
+		return this.makeUpdate(beforeLeft, false, false, 'map', alerts, time);
 	}
 
 	/**
@@ -568,11 +567,6 @@ export class D6StepTracker {
 		this.initializedValue = true;
 	}
 
-	/** 唤息只换地图、不消耗步数；保留入口便于日志/测试明确语义 */
-	noteHuanxi(): void {
-		// 不改变步数；下一次 observeMap 会按新行重新计时。
-	}
-
 	private consumeStep(): void {
 		if (this.leftValue > 0) {
 			this.leftValue -= 1;
@@ -657,7 +651,6 @@ export class D6StepTracker {
 		beforeLeft: number,
 		confirmed: boolean,
 		retry: boolean,
-		wait: boolean,
 		reason: string,
 		alerts: string[],
 		time: number,
@@ -687,7 +680,6 @@ export class D6StepTracker {
 			waitMs: waitMs,
 			confirmed: confirmed,
 			retry: retry,
-			wait: wait,
 			reason: reason,
 			evidence: this.evidenceValue,
 			elapsed: elapsed,

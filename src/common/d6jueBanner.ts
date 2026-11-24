@@ -20,8 +20,6 @@ export interface D6BannerAnchor {
 	h: number;
 	/** 匹配打分，仅用于日志 */
 	score: number;
-	/** 最下面一段文字的包围盒 [x1, y1, x2, y2] */
-	textBox: [number, number, number, number];
 }
 
 /** 把屏幕分辨率截图缩到接近 1280x720，复用离线调好的阈值。 */
@@ -302,6 +300,5 @@ export function detectD6BannerAnchor(image: ImageDataLike, slotCenter: [number, 
 		w: textW,
 		h: textH,
 		score: best.score,
-		textBox: [text.minx, text.miny, text.maxx, text.maxy],
 	};
 }

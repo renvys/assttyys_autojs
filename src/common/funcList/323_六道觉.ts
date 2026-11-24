@@ -497,7 +497,7 @@ export class Func323 implements IFuncOrigin {
 		// TODO(六道觉): 如需保留通用选事件界面识别，可在此取色
 	}, { // 5 六道觉 -> 事件图标（已废弃：目标完全由小地图决定，不再使用事件图标兜底）
 	}, { // 6 六道觉 -> 选buff界面
-		// 舞技强化/buff选择判定改为「备战 + 刷新」双条件，见状态 36/39
+		// 舞技强化/buff选择判定改为「刷新」条件，见状态 39
 		// TODO(六道觉): 如仍需单独识别该界面，可在此取色
 	}, { // 7 选buff_OCR区域（仅坐标，不参与状态判定，由[6]调用）
 		// TODO(六道觉): 填入3个buff名称识别区域 + 3个对应的点击区域
@@ -716,17 +716,7 @@ export class Func323 implements IFuncOrigin {
 			[center, 1280, 720, 585, 555, 700, 590, 500], // 技能2
 			[center, 1280, 720, 900, 555, 1010, 590, 500], // 技能3
 		],
-	}, { // 36 六道觉 -> 备战（事件界面左下角，仅保留取色，不再作为地图处理门禁）
-		// 已取色：左下角备战
-		desc: [1280, 720,
-			[
-				[left, 32, 680, 0x407a97],
-				[left, 182, 672, 0x315169],
-				[left, 136, 673, 0x2f5166],
-				[left, 233, 681, 0x2e60a1],
-			]
-		],
-		notForCnt: true,
+	}, { // 36 已废弃：备战不再作为地图处理门禁
 	}, { // 37 六道觉 -> 唤息_暗（事件界面右下角，仅识别）
 		// 已取色：右下角暗色唤息
 		desc: [1280, 720,
@@ -1489,7 +1479,6 @@ export class Func323 implements IFuncOrigin {
 				lei: g.d6jueLeiLevel || 0,
 				power: g.d6juePowerLevel || 0,
 				wallet: g.d6jueWanxiangling || 0,
-				pending: g.d6jueWanxianglingPending || 0,
 				step: g.d6jueStepLeft || 0,
 				refresh: d6BuffRefreshCount,
 				sinceRefresh: d6BuffLastRefreshTime ? now() - d6BuffLastRefreshTime : -1,
@@ -1589,7 +1578,6 @@ export class Func323 implements IFuncOrigin {
 				lei: g.d6jueLeiLevel || 0,
 				power: g.d6juePowerLevel || 0,
 				wallet: g.d6jueWanxiangling || 0,
-				pending: g.d6jueWanxianglingPending || 0,
 				island: d6IslandKey,
 				step: g.d6jueStepLeft || 0,
 			});
@@ -2506,7 +2494,6 @@ export class Func323 implements IFuncOrigin {
 				thisScript.regionClick(clickOper);
 				getStepTracker().noteClick(now(), rowKey, lastMapHash);
 				syncStepState();
-				g.d6jueLastMapSig = rowKey;
 				g.d6jueLastMapSigTime = now();
 				// 新点击开始一轮 pending 重读预算
 				stepCounterRead = null;
@@ -2538,7 +2525,6 @@ export class Func323 implements IFuncOrigin {
 					anchorScore: anchor ? Number(anchor.score.toFixed(3)) : 0,
 					mode: priority === MAP_PRIORITY_SHOP_HUNT ? 'hunt' : (clearMet ? 'cleared' : 'normal'),
 					wallet: g.d6jueWanxiangling || 0,
-					pending: g.d6jueWanxianglingPending || 0,
 					lei: leiLevel,
 					power: powerLevel,
 				});
@@ -2597,9 +2583,7 @@ export class Func323 implements IFuncOrigin {
 			d6BuffScreenLastSeen = 0;
 			d6BuffWalletOcrSkipUntil = 0;
 			d6BuffLastPickTime = 0;
-			g.d6jueLoop = 0;
 			g.d6jueCoreBuff = 0;
-			g.d6jueSkillCount = 0;
 			g.d6jueLeiLevel = 0;
 			g.d6jueOtherBuffSelected = false;
 			g.d6juePowerLevel = 0;
@@ -2612,7 +2596,6 @@ export class Func323 implements IFuncOrigin {
 			g.d6jueShopBuyStage = 0;
 			g.d6jueShopBuyTime = 0;
 			g.d6jueWanxiangling = 0;
-			g.d6jueWanxianglingPending = 0;
 			lastWalletOcrTime = 0;
 			d6IslandKey = '';
 			d6IslandGainDone = false;
@@ -2631,7 +2614,6 @@ export class Func323 implements IFuncOrigin {
 			buffSelectLockUntil = 0;
 			buffSelectLockMs = 0;
 			resetBuffScreenState();
-			g.d6jueLastMapSig = '';
 			g.d6jueLastMapSigTime = 0;
 			g.d6jueStepPending = false;
 			lastMapHash = '';
@@ -2652,7 +2634,6 @@ export class Func323 implements IFuncOrigin {
 				times: g.d6jueTimes || 0,
 				step: g.d6jueStepLeft || 0,
 				wallet: 0,
-				pending: 0,
 				lei: 0,
 				power: 0,
 			});
@@ -2891,7 +2872,6 @@ export class Func323 implements IFuncOrigin {
 				d6jueAnalysisLog('shop.enter', {
 					step: g.d6jueStepLeft || 0,
 					wallet: g.d6jueWanxiangling || 0,
-					pending: g.d6jueWanxianglingPending || 0,
 					lei: g.d6jueLeiLevel || 0,
 					power: g.d6juePowerLevel || 0,
 				});
@@ -3265,7 +3245,6 @@ export class Func323 implements IFuncOrigin {
 				// 优先满足通关：力量≤2，轰雷=0时优先轰雷，否则力量；力量卡不可用时再选其他可用buff
 				if (leiLevel === 0 && selectLei()) return true;
 				if (powerSelectable && oper([40], '六道觉_舞技强化')) {
-					g.d6jueSkillCount = (g.d6jueSkillCount || 0) + 1;
 					resetBuffScreenState();
 					console.log(`[d6jue] 力量等级=${powerLevel}，继续舞技强化`);
 					return true;
@@ -3280,7 +3259,6 @@ export class Func323 implements IFuncOrigin {
 						return true;
 					}
 					if (oper([40], '六道觉_舞技强化')) {
-						g.d6jueSkillCount = (g.d6jueSkillCount || 0) + 1;
 						resetBuffScreenState();
 						console.log(`[d6jue] 力量等级=${powerLevel}，无轰雷且刷新不可用，选择舞技强化`);
 						return true;
@@ -3290,7 +3268,6 @@ export class Func323 implements IFuncOrigin {
 					// 力量3~9、轰雷>=1：可用buff（轰雷与普通buff同优先级） → 力量 → 亮色刷新
 					if (selectAllowedBuff()) return true;
 					if (oper([40], '六道觉_舞技强化')) {
-						g.d6jueSkillCount = (g.d6jueSkillCount || 0) + 1;
 						resetBuffScreenState();
 						console.log(`[d6jue] 力量等级=${powerLevel}，继续舞技强化`);
 						return true;
@@ -3379,7 +3356,7 @@ export class Func323 implements IFuncOrigin {
 		// 21/22 为双倍确认弹窗的两个按钮，默认都启用（与 316 一致），可按需删减
 		if (oper([
 			8, 9, 10, 11, 12, 16, 18, 19,
-			21, 22, 23, 24, 25, 26, 27, 30,
+			21, 22, 23, 26, 27, 30,
 		], '六道觉_执行个别事件')) {
 			return true;
 		}
@@ -3395,7 +3372,6 @@ export class Func323 implements IFuncOrigin {
 				result: 'clear',
 				step: g.d6jueStepLeft || 0,
 				wallet: g.d6jueWanxiangling || 0,
-				pending: 0,
 				lei: g.d6jueLeiLevel || 0,
 				power: g.d6juePowerLevel || 0,
 				seconds: currentCost,
