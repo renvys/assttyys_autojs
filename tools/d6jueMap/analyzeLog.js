@@ -102,7 +102,10 @@ const all = {
 	buffWaitMs: [],
 	buffWaitTimeouts: 0,
 	buffWaitChanged: 0,
+	buffContinuations: 0,
+	buffContGaps: [],
 	huanxiConfirm: 0,
+	huanxiHow: {},
 	huanxiUnverified: 0,
 	battleFail: 0,
 	bossTimeout: 0,
@@ -194,6 +197,8 @@ runs.forEach((run, index) => {
 	const buffWaitMs = buffWaits.map(e => num(e.data.waited)).filter(v => v > 0);
 	const buffWaitTimeouts = buffWaits.filter(e => e.data.timeout === '1').length;
 	const buffWaitChanged = buffWaits.filter(e => e.data.reason === 'refresh' && e.data.changed === '1').length;
+	const buffContinuations = by('buff.continuation');
+	const buffContGaps = buffContinuations.map(e => num(e.data.gap)).filter(v => v > 0);
 	const lastState = ev.slice().reverse().find(e => e.data.wallet !== undefined) || { data: {} };
 	const finalLei = runEnd ? num(runEnd.data.lei) : num((mapSteps.slice(-1)[0] || { data: {} }).data.lei);
 	const finalPower = runEnd ? num(runEnd.data.power) : num((mapSteps.slice(-1)[0] || { data: {} }).data.power);
@@ -279,10 +284,13 @@ runs.forEach((run, index) => {
 	}
 	if (ocrSources.length) console.log(`OCR偏差来源: ${ocrSources.slice(0, 8).join(' ')}${ocrSources.length > 8 ? '...' : ''}`);
 	console.log(`战斗失败: ${by('battle.fail').length}次, 首领超时: ${by('boss.timeout').length}次`);
-	const huanxiConfirm = by('map.huanxi_confirm').length;
+	const huanxiConfirms = by('map.huanxi_confirm');
+	const huanxiConfirm = huanxiConfirms.length;
 	const huanxiUnverified = by('map.huanxi_unverified').length;
-	console.log(`唤息: ${huanxiEvents.length}次 ${huanxiEvents.length ? '(' + fmtCounts(huanxiEvents.reduce((o, e) => { inc(o, e.data.reason || '?'); return o; }, {})) + ')' : ''}, 费用确认${huanxiConfirm}次, 未确认${huanxiUnverified}次`);
-	console.log(`buff: 轰雷检测命中${leiCheckHit}/${leiChecks.length}, 扫描命中${scanLei}/${scans.length}, 刷新${by('buff.refresh').length}次, 卡面等待${buffWaits.length}次(平均${avg(buffWaitMs)}ms, 超时${buffWaitTimeouts}, 刷新见变化${buffWaitChanged})`);
+	const huanxiHow = huanxiConfirms.reduce((o, e) => { inc(o, e.data.how || 'legacy'); return o; }, {});
+	const huanxiElapsed = huanxiConfirms.map(e => num(e.data.elapsed)).filter(v => v > 0);
+	console.log(`唤息: ${huanxiEvents.length}次 ${huanxiEvents.length ? '(' + fmtCounts(huanxiEvents.reduce((o, e) => { inc(o, e.data.reason || '?'); return o; }, {})) + ')' : ''}, 费用确认${huanxiConfirm}次${huanxiConfirm ? `(${fmtCounts(huanxiHow)}, 平均${avg(huanxiElapsed)}ms)` : ''}, 未确认${huanxiUnverified}次`);
+	console.log(`buff: 轰雷检测命中${leiCheckHit}/${leiChecks.length}, 扫描命中${scanLei}/${scans.length}, 刷新${by('buff.refresh').length}次, 卡面等待${buffWaits.length}次(平均${avg(buffWaitMs)}ms, 超时${buffWaitTimeouts}, 刷新见变化${buffWaitChanged}), 精英连屏${buffContinuations.length}次(平均${avg(buffContGaps)}ms)`);
 	console.log(`unknown: ${by('map.unknown').length}次, boss: ${by('boss.enter').length ? '已到达' : '未到达'}`);
 
 	all.clear += runEnd && runEnd.data.result === 'clear' ? 1 : 0;
@@ -321,8 +329,13 @@ runs.forEach((run, index) => {
 	all.buffWaits += buffWaits.length;
 	all.buffWaitMs.push(...buffWaitMs);
 	all.buffWaitTimeouts += buffWaitTimeouts;
+	all.buffContinuations += buffContinuations.length;
+	all.buffContGaps.push(...buffContGaps);
 	all.buffWaitChanged += buffWaitChanged;
 	all.huanxiConfirm += huanxiConfirm;
+	for (const key of Object.keys(huanxiHow)) {
+		all.huanxiHow[key] = (all.huanxiHow[key] || 0) + huanxiHow[key];
+	}
 	all.huanxiUnverified += huanxiUnverified;
 	for (const v of ocrDiffs) all.ocrMax = Math.max(all.ocrMax, Math.abs(v));
 	for (const v of syncDeltas) all.ocrSyncMax = Math.max(all.ocrSyncMax, Math.abs(v));
@@ -364,6 +377,9 @@ console.log(`刷新费用校验: ${all.costChecks}次, 通过${all.costVerified}
 if (all.buffWaits) {
 	console.log(`buff卡面等待: ${all.buffWaits}次, 平均${avg(all.buffWaitMs)}ms, 超时${all.buffWaitTimeouts}次, 刷新见变化${all.buffWaitChanged}次`);
 }
-console.log(`唤息费用确认: ${all.huanxiConfirm}次, 未确认${all.huanxiUnverified}次`);
+if (all.buffContinuations) {
+	console.log(`buff精英连屏: ${all.buffContinuations}次, 平均间隔${avg(all.buffContGaps)}ms`);
+}
+console.log(`唤息费用确认: ${all.huanxiConfirm}次${all.huanxiConfirm ? `(${fmtCounts(all.huanxiHow)})` : ''}, 未确认${all.huanxiUnverified}次`);
 console.log(`战斗失败: ${all.battleFail}次, 首领超时: ${all.bossTimeout}次`);
 console.log(`主动/单混沌唤息: ${all.huanxi}次`);
