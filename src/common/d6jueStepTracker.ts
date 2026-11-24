@@ -136,6 +136,13 @@ export class D6StepTracker {
 	private counterCandidateTime: number;
 	private counterCandidateCount: number;
 
+	/** 计数器持续偏高（计算值偏小）的候选：必须跨不同地图行连续成立才纠正 */
+	private higherRowKey: string;
+	private higherDelta: number;
+	private higherRowCount: number;
+	/** 最近一次 weak_row 确认前的快照；计数器证明没推进时用于回滚 */
+	private weakSnapshot: { left: number; consumed: number; seq: number } | null;
+
 	constructor(options?: Partial<D6StepTrackerOptions>) {
 		this.opts = {
 			totalSteps: options && options.totalSteps !== undefined ? options.totalSteps : DEFAULT_OPTIONS.totalSteps,
@@ -169,6 +176,10 @@ export class D6StepTracker {
 		this.returnRowKey = '';
 		this.returnSince = 0;
 		this.clearCounterCandidate();
+		this.higherRowKey = '';
+		this.higherDelta = 0;
+		this.higherRowCount = 0;
+		this.weakSnapshot = null;
 	}
 
 	configure(options?: Partial<D6StepTrackerOptions>): void {
@@ -205,6 +216,10 @@ export class D6StepTracker {
 		this.returnRowKey = '';
 		this.returnSince = 0;
 		this.clearCounterCandidate();
+		this.higherRowKey = '';
+		this.higherDelta = 0;
+		this.higherRowCount = 0;
+		this.weakSnapshot = null;
 	}
 
 	get left(): number {
@@ -250,9 +265,29 @@ export class D6StepTracker {
 		return this.phaseValue;
 	}
 
-	/** 放弃当前偏低读数候选（连续重读失败/换行时调用，避免永远等待） */
+	/** 放弃当前读数候选（连续重读失败/换行时调用，避免永远等待） */
 	cancelCounterCandidate(): void {
 		this.clearCounterCandidate();
+		this.clearHigherCandidate();
+	}
+
+	/**
+	 * 回滚最近一次 weak_row 确认。
+	 * 调用方用计数器确认“这次点击没有消耗一步”后调用；回滚后 phase=map，
+	 * 步数和岛屿序号恢复到点击前，可以按点击失败重试当前行。
+	 */
+	revertLastWeakStep(): boolean {
+		const snap = this.weakSnapshot;
+		if (!snap) return false;
+		this.leftValue = clamp(snap.left, 0, this.opts.totalSteps);
+		this.consumedValue = this.opts.totalSteps - this.leftValue;
+		this.seqValue = snap.seq;
+		this.weakSnapshot = null;
+		this.clearCounterCandidate();
+		this.clearHigherCandidate();
+		this.clearPending();
+		this.initializedValue = true;
+		return true;
 	}
 
 	/**
@@ -271,6 +306,7 @@ export class D6StepTracker {
 			this.returnRowKey = '';
 			this.returnSince = 0;
 			this.clearCounterCandidate();
+			this.clearHigherCandidate();
 			return this.makeUpdate(beforeLeft, false, false, true, 'invalid', alerts, time);
 		}
 
@@ -321,8 +357,12 @@ export class D6StepTracker {
 			}
 
 			// 地图行已变化但没有岛屿证据：先等稳定，超过 weakRowMs 才弱确认。
+			// weak 确认可能把“点击失败但画面变了”误算成一步；调用方会用计数器
+			// 再次校验，并可通过 revertLastWeakStep() 回滚。
 			if (stable && elapsed >= this.opts.weakRowMs) {
+				const snapshot = { left: this.leftValue, consumed: this.consumedValue, seq: this.seqValue };
 				this.consumeStep();
+				this.weakSnapshot = snapshot;
 				alerts.push('weak_row_confirm');
 				return this.makeUpdate(beforeLeft, true, false, false, 'weak_row', alerts, time, undefined, elapsed);
 			}
@@ -363,13 +403,20 @@ export class D6StepTracker {
 		this.returnRowKey = '';
 		this.returnSince = 0;
 		this.clearCounterCandidate();
+		this.weakSnapshot = null;
 	}
 
 	/**
 	 * 记录一次回合数字读数。只有 phase=map 且地图已稳定时才允许校准；
 	 * 待确认期间只用于判断计数器是否下降（不直接校准）。
 	 */
-	noteCounter(time: number, counterLeft: number, confidence: number, stable: boolean): D6StepCounterUpdate {
+	noteCounter(
+		time: number,
+		counterLeft: number,
+		confidence: number,
+		stable: boolean,
+		rowKey?: string,
+	): D6StepCounterUpdate {
 		const beforeLeft = this.leftValue;
 		const alerts: string[] = [];
 		if (!isFinite(counterLeft)) {
@@ -451,10 +498,12 @@ export class D6StepTracker {
 
 		if (value === this.leftValue) {
 			this.clearCounterCandidate();
+			this.clearHigherCandidate();
 			return this.makeCounterUpdate(beforeLeft, true, false, false, 'match', alerts);
 		}
 		if (value < this.leftValue) {
 			// 向下校准：普通漏 1~2 步要求连续两次一致；大跳变或个位数疑似丢前导 1 时要求三次。
+			this.clearHigherCandidate();
 			const drop = this.leftValue - value;
 			const required = this.counterRequiredReads(drop, value);
 			if (this.confirmCounterCandidate(value, time, required)) {
@@ -464,9 +513,42 @@ export class D6StepTracker {
 			}
 			return this.makeCounterUpdate(beforeLeft, false, false, false, 'lower_wait', alerts);
 		}
-		// 步数只允许单调不增；更高的读数视为旧行/误读。
-		this.clearCounterCandidate();
-		return this.makeCounterUpdate(beforeLeft, false, false, false, 'higher', alerts);
+
+		// 计数器比计算值高：可能是旧行读数，也可能是计算多算了一步。
+		// - 绽放行：计数器指向 5 的倍数而当前不是，直接按绽放锚点纠正；
+		// - 普通行：同一正差值连续跨两个不同地图行才纠正，避免单行旧值误判。
+		// 注意：这里不阻塞点击；即使本行没纠正，下一行也会在点击前把步数拉回。
+		const higherDelta = value - this.leftValue;
+		if (higherDelta > 2 || !rowKey || confidence < 0.8) {
+			this.clearHigherCandidate();
+			return this.makeCounterUpdate(beforeLeft, false, false, false, 'higher', alerts);
+		}
+		if (this.initializedValue && this.currentBloomValue) {
+			const counterStepNo = this.opts.totalSteps - value + 1;
+			if (counterStepNo % this.opts.bloomEvery === 0 && this.stepNo % this.opts.bloomEvery !== 0) {
+				this.applyCalibration(value);
+				alerts.push('higher_bloom_fix');
+				return this.makeCounterUpdate(beforeLeft, true, false, false, 'higher_bloom', alerts);
+			}
+		}
+		if (rowKey !== this.higherRowKey) {
+			if (this.higherDelta === higherDelta && this.higherRowCount > 0) {
+				this.higherRowCount++;
+			} else {
+				this.higherRowCount = 1;
+				this.higherDelta = higherDelta;
+			}
+			this.higherRowKey = rowKey;
+		} else if (this.higherDelta !== higherDelta) {
+			this.higherRowCount = 1;
+			this.higherDelta = higherDelta;
+		}
+		if (this.higherRowCount >= 2) {
+			this.applyCalibration(value);
+			alerts.push('higher_recover');
+			return this.makeCounterUpdate(beforeLeft, true, false, false, 'higher_recover', alerts);
+		}
+		return this.makeCounterUpdate(beforeLeft, false, false, false, 'higher_wait', alerts);
 	}
 
 	/** 偏低读数需要几次一致：大跳变/疑似丢前导 1 时要求三次 */
@@ -479,6 +561,7 @@ export class D6StepTracker {
 	noteBoss(): void {
 		this.clearPending();
 		this.clearCounterCandidate();
+		this.clearHigherCandidate();
 		this.leftValue = 0;
 		this.consumedValue = this.opts.totalSteps;
 		this.seqValue = Math.max(this.seqValue, this.consumedValue);
@@ -499,6 +582,7 @@ export class D6StepTracker {
 		this.initializedValue = true;
 		this.clearPending();
 		this.clearCounterCandidate();
+		this.weakSnapshot = null;
 	}
 
 	private applyCalibration(newLeft: number): void {
@@ -507,6 +591,8 @@ export class D6StepTracker {
 		if (this.seqValue < this.consumedValue) this.seqValue = this.consumedValue;
 		this.initializedValue = true;
 		this.clearCounterCandidate();
+		this.clearHigherCandidate();
+		this.weakSnapshot = null;
 	}
 
 	private confirmCounterCandidate(value: number, time: number, requiredCount: number): boolean {
@@ -524,6 +610,12 @@ export class D6StepTracker {
 		this.counterCandidateValue = -1;
 		this.counterCandidateTime = 0;
 		this.counterCandidateCount = 0;
+	}
+
+	private clearHigherCandidate(): void {
+		this.higherRowKey = '';
+		this.higherDelta = 0;
+		this.higherRowCount = 0;
 	}
 
 	private clearPending(): void {

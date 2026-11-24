@@ -86,6 +86,9 @@ const all = {
 	counterWaits: 0,
 	stepCalibrates: 0,
 	stepAlerts: 0,
+	weakReverts: 0,
+	weakUnverified: 0,
+	higherFixes: 0,
 	stepConfirmReasons: {},
 	ocrCount: 0,
 	ocrBad: 0,
@@ -207,6 +210,9 @@ runs.forEach((run, index) => {
 	}, {});
 	const stepCalibrates = by('step.calibrate');
 	const stepAlerts = by('step.alert');
+	const weakReverts = by('step.revert_weak');
+	const weakUnverified = stepAlerts.filter(e => e.data.kind === 'weak_row_unverified').length;
+	const higherFixes = stepCalibrates.filter(e => String(e.data.reason || '').indexOf('higher') === 0).length;
 	const counterWaits = by('map.counter_wait');
 	const retryEvents = by('map.step_retry');
 	const retryGap = retryEvents.length
@@ -216,6 +222,9 @@ runs.forEach((run, index) => {
 	console.log(`步数: 第${maxStep}步, 点击${mapSteps.length}次, 确认${confirmedSteps}次, 重试${retryEvents.length}次(平均${retryGap}s), 最终力量=${finalPower}, 轰雷=${finalLei}, 万相铃=${finalWallet}`);
 	if (confirmedSteps || stepCalibrates.length || stepAlerts.length) {
 		console.log(`步数确认: ${fmtCounts(confirmReasons)}; 校准${stepCalibrates.length}次, 告警${stepAlerts.length}次`);
+	}
+	if (weakReverts.length || weakUnverified || higherFixes) {
+		console.log(`步数校验: weak回滚${weakReverts.length}次, weak未验证${weakUnverified}次, 偏高纠正${higherFixes}次`);
 	}
 	const anchorBannerSteps = mapSteps.filter(e => e.data.anchor === 'banner');
 	const anchorFixedSteps = mapSteps.filter(e => e.data.anchor === 'fixed');
@@ -299,6 +308,9 @@ runs.forEach((run, index) => {
 	all.counterWaits += counterWaits.length;
 	all.stepCalibrates += stepCalibrates.length;
 	all.stepAlerts += stepAlerts.length;
+	all.weakReverts += weakReverts.length;
+	all.weakUnverified += weakUnverified;
+	all.higherFixes += higherFixes;
 	for (const key of Object.keys(confirmReasons)) inc(all.stepConfirmReasons, key);
 	all.ocrCount += ocrEvents.length;
 	all.ocrBad += ocrDiffs.length;
@@ -343,6 +355,9 @@ if (all.counterReads || all.counterMiss || all.counterReject || all.counterRecov
 }
 if (Object.keys(all.stepConfirmReasons).length || all.stepCalibrates || all.stepAlerts) {
 	console.log(`步数确认来源: ${fmtCounts(all.stepConfirmReasons) || '无'}; 校准${all.stepCalibrates}次, 告警${all.stepAlerts}次`);
+}
+if (all.weakReverts || all.weakUnverified || all.higherFixes) {
+	console.log(`步数校验: weak回滚${all.weakReverts}次, weak未验证${all.weakUnverified}次, 偏高纠正${all.higherFixes}次`);
 }
 console.log(`万相铃OCR: ${all.ocrCount}次, 记账偏差${all.ocrBad}次, 最大偏差=${all.ocrMax}, 读取异常${all.ocrReadErrors}次, OCR校准${all.ocrSyncs}次(最大=${all.ocrSyncMax})`);
 console.log(`刷新费用校验: ${all.costChecks}次, 通过${all.costVerified}, 未通过${all.costChecks - all.costVerified}`);

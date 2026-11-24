@@ -66,6 +66,7 @@ let stepCounterRead: {
 	rejectLogged: boolean;
 	waitLogged: boolean;
 	matchLogged: boolean;
+	pendingTimeoutLogged: boolean;
 } | null = null;
 
 /** 小地图缓存哈希：颜色量化到 16 级 + 12x12 抽样，忽略轻微动画 */
@@ -119,13 +120,15 @@ const MAP_PRIORITY: { [key: string]: number } = {
 	混沌: 1,
 	绽放: 0,
 };
-// 满足通关条件后：优先非战斗/可跳过节点，最后才打鏖战/混沌
+// 满足通关条件后：优先非战斗/可跳过节点，最后才打鏖战。
+// 混沌排鏖战之前：普通混沌是宝匣（实测约 5s，点离开即可），
+// 混沌精英约 12s（两次选 buff，通关后不刷新），都不慢于鏖战（约 11.5s）。
 const MAP_PRIORITY_CLEARED: { [key: string]: number } = {
 	神秘: 6,
 	宁息: 5,
 	绽放: 4,
+	混沌: 3,
 	鏖战: 2,
-	混沌: 1,
 };
 // 只剩轰雷且钱够时：宁息商店 > 鏖战（必定给一次三选一） > 神秘 > 混沌 > 绽放
 const MAP_PRIORITY_SHOP_HUNT: { [key: string]: number } = {
@@ -1675,6 +1678,7 @@ export class Func323 implements IFuncOrigin {
 					rejectLogged: false,
 					waitLogged: false,
 					matchLogged: false,
+					pendingTimeoutLogged: false,
 				};
 			}
 			const state = stepCounterRead;
@@ -1687,7 +1691,21 @@ export class Func323 implements IFuncOrigin {
 				&& (state.attempts === 0 || t - state.firstTime <= maxWait);
 			if (!withinBudget) {
 				state.exhausted = true;
-				if (!state.missLogged) {
+				if (state.result) {
+					// pending 重读预算到期，但最后一次读取是成功的：这是“读到了但没变化”，
+					// 不是识别失败。单独记事件，避免污染 map.counter_miss 统计。
+					if (pending && !state.pendingTimeoutLogged) {
+						state.pendingTimeoutLogged = true;
+						d6jueAnalysisLog('map.counter_pending_timeout', {
+							prev: g.d6jueStepLeft || 0,
+							row: state.rowKey,
+							attempts: state.attempts,
+							value: state.result.value,
+							digits: state.result.digits,
+							conf: Number(state.result.confidence.toFixed(2)),
+						});
+					}
+				} else if (!state.missLogged) {
 					state.missLogged = true;
 					d6jueAnalysisLog('map.counter_miss', {
 						prev: g.d6jueStepLeft || 0,
@@ -1795,6 +1813,7 @@ export class Func323 implements IFuncOrigin {
 			if (
 				update.reason === 'higher'
 				|| update.reason === 'higher_pending'
+				|| update.reason === 'higher_wait'
 				|| update.reason === 'low_confidence'
 				|| update.reason === 'invalid'
 			) {
@@ -1945,7 +1964,51 @@ export class Func323 implements IFuncOrigin {
 				bloom,
 			});
 			syncStepState();
-			if (mapUpdate.alerts.length > 0) {
+
+			// weak_row 只是"画面行变了、没有岛屿证据"的兜底。先用计数器确认：
+			// 计数器没下降说明这次点击没有消耗一步，必须回滚，按点击失败重试当前行。
+			let weakReverted = false;
+			if (mapUpdate.confirmed && mapUpdate.reason === 'weak_row') {
+				// weak 行已经稳定，强制做一次新的计数器读取，不能沿用 pending 期间耗尽的缓存。
+				stepCounterRead = null;
+				const weakRead = readStepCounter(rowKey, false);
+				if (weakRead.result && weakRead.result.confidence >= 0.8) {
+					const weakCounterLeft = weakRead.result.value + 1;
+					if (weakCounterLeft >= mapUpdate.leftBefore && getStepTracker().revertLastWeakStep()) {
+						weakReverted = true;
+						syncStepState();
+						d6jueAnalysisLog('step.revert_weak', {
+							leftBefore: mapUpdate.leftBefore,
+							left: getStepTracker().left,
+							step: getStepTracker().stepNo,
+							seq: getStepTracker().islandSeq,
+							counter: weakRead.result.value,
+							digits: weakRead.result.digits,
+							conf: Number(weakRead.result.confidence.toFixed(2)),
+							elapsed: mapUpdate.elapsed,
+							nodes: state.reachable.map(n => n.type).join('/'),
+						});
+						d6jueAnalysisLog('map.step_retry', {
+							left: getStepTracker().left,
+							step: getStepTracker().stepNo,
+							seq: getStepTracker().islandSeq,
+							nodes: state.reachable.map(n => n.type).join('/'),
+							gap: mapUpdate.elapsed,
+							reason: 'weak_counter_unchanged',
+						});
+						if (thisConf.logMapNodes) console.log('[d6jue-map] weak_row 被计数器否决，按点击失败重试');
+					}
+				} else {
+					d6jueAnalysisLog('step.alert', {
+						kind: 'weak_row_unverified',
+						step: mapUpdate.stepNo,
+						left: mapUpdate.left,
+						elapsed: mapUpdate.elapsed,
+					});
+				}
+			}
+
+			if (mapUpdate.alerts.length > 0 && !weakReverted) {
 				d6jueAnalysisLog('step.alert', {
 					kind: mapUpdate.alerts.join(','),
 					step: mapUpdate.stepNo,
@@ -1954,7 +2017,7 @@ export class Func323 implements IFuncOrigin {
 				});
 				if (thisConf.logMapNodes) console.log(`[d6jue-map] 步数告警: ${mapUpdate.alerts.join(',')}`);
 			}
-			if (mapUpdate.confirmed) {
+			if (mapUpdate.confirmed && !weakReverted) {
 				// 新行确认后强制重新读一次计数器，避免把 pending 期间读到的旧值缓存到新行。
 				stepCounterRead = null;
 				d6jueAnalysisLog('map.step_confirm', {
@@ -1969,7 +2032,7 @@ export class Func323 implements IFuncOrigin {
 				});
 				console.log(`[d6jue-map] 步数确认 +1（${mapUpdate.reason}），剩余${mapUpdate.left}步`);
 			}
-			const retriedClick = mapUpdate.retry;
+			const retriedClick = mapUpdate.retry || weakReverted;
 			if (mapUpdate.retry) {
 				d6jueAnalysisLog('map.step_retry', {
 					left: mapUpdate.left,
@@ -2016,6 +2079,7 @@ export class Func323 implements IFuncOrigin {
 						pendingRead.result.value + 1,
 						pendingRead.result.confidence,
 						true,
+						rowKey,
 					);
 					syncStepState();
 					logStepCounterRead(counterUpdate, pendingRead.result);
@@ -2054,6 +2118,7 @@ export class Func323 implements IFuncOrigin {
 						counterRead.result.value + 1,
 						counterRead.result.confidence,
 						true,
+						rowKey,
 					);
 					syncStepState();
 					logStepCounterRead(counterUpdate, counterRead.result);

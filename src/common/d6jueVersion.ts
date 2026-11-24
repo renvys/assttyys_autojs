@@ -7,4 +7,4 @@
  * 规则：影响识别、步数、取点、流程策略的改动，提交前同步改这里。
  * 建议格式：<主题><序号>，例如 counter3+bannerRetry。
  */
-export const D6_LOGIC_VERSION = 'stepTransition1+clickDist1+buffSimilar1+buffWait4+clickSmall1+mapCache2';
+export const D6_LOGIC_VERSION = 'stepTransition1+clickDist1+buffSimilar1+buffWait4+clickSmall1+mapCache2+stepGuard1+clearedChaos1';
