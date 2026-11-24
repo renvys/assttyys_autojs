@@ -230,6 +230,77 @@ const D6_MAP_SLOT_DEV_RECTS: Array<[number, number, number, number]> = [
 	[1000, 360, 1060, 510], // four-4
 ];
 
+/**
+ * 主地图点击分布：以历史横幅锚点重试成功点为样本标定（1280×720 开发坐标）。
+ *
+ * - x 方向很稳定：σ 取 5~6px；three-right 的真实横幅比原固定中心右移约 21px。
+ * - y 方向随行高/镜头波动：σ 取 14~20px，并用 min/max 截断，避免点进岛屿/水面。
+ * - 每次点击从截断正态分布重新取点，不是固定连击，也不是固定哈希点。
+ * - 点完后的重试次数由 D6StepTracker 的时间门控决定（默认 4.5s/8s），
+ *   不做快速连点，避免在岛屿过场里误点事件 UI。
+ */
+interface D6MapClickDistribution {
+	cx: number;
+	cy: number;
+	sx: number;
+	sy: number;
+	xMin: number;
+	xMax: number;
+	yMin: number;
+	yMax: number;
+}
+
+const D6_MAP_CLICK_DIST: Array<D6MapClickDistribution | null> = [
+	// single 原固定点成功率 97%，中心取原点击均值(671,448)与锚点中位数(663,429)之间，避免回退
+	{ cx: 668, cy: 440, sx: 6, sy: 14, xMin: 645, xMax: 690, yMin: 410, yMax: 470 }, // single
+	{ cx: 392, cy: 447, sx: 5, sy: 16, xMin: 378, xMax: 410, yMin: 415, yMax: 475 }, // two-left
+	// two-right 原固定点成功率 95%，以原均值为中心，仅放宽 x 覆盖偶发的左偏横幅
+	{ cx: 910, cy: 450, sx: 16, sy: 20, xMin: 860, xMax: 940, yMin: 380, yMax: 490 }, // two-right
+	{ cx: 293, cy: 328, sx: 5, sy: 18, xMin: 278, xMax: 312, yMin: 300, yMax: 360 }, // three-left
+	{ cx: 730, cy: 411, sx: 5, sy: 18, xMin: 715, xMax: 748, yMin: 385, yMax: 450 }, // three-center
+	{ cx: 1056, cy: 353, sx: 5, sy: 18, xMin: 1045, xMax: 1065, yMin: 320, yMax: 388 }, // three-right
+	null, // four-1：样本不足，保留固定点击
+	{ cx: 476, cy: 473, sx: 6, sy: 18, xMin: 460, xMax: 495, yMin: 448, yMax: 518 }, // four-2
+	null, // four-3
+	null, // four-4
+];
+
+// 横幅锚点 x 缓存：重试成功一次后，把真实横幅 x 作为后续随机分布的中心。
+// 只缓存 x（不同行非常稳定）；y 仍由分布覆盖行高波动。
+const d6MapAnchorXCache: { [slotIndex: number]: number } = {};
+
+let d6NormalSpare: number | null = null;
+
+function d6NormalRandom(): number {
+	if (d6NormalSpare !== null) {
+		const v = d6NormalSpare;
+		d6NormalSpare = null;
+		return v;
+	}
+	let u = 0;
+	let v = 0;
+	while (u === 0) u = Math.random();
+	while (v === 0) v = Math.random();
+	const r = Math.sqrt(-2 * Math.log(u));
+	const a = 2 * Math.PI * v;
+	d6NormalSpare = r * Math.sin(a);
+	return r * Math.cos(a);
+}
+
+function d6Clamp(value: number, min: number, max: number): number {
+	return value < min ? min : (value > max ? max : value);
+}
+
+function pickD6MapClickPoint(slotIndex: number): { x: number; y: number; cx: number; cy: number } | null {
+	const dist = D6_MAP_CLICK_DIST[slotIndex];
+	if (!dist) return null;
+	const cachedX = d6MapAnchorXCache[slotIndex];
+	const cx = cachedX === undefined ? dist.cx : d6Clamp(cachedX, dist.xMin, dist.xMax);
+	const x = d6Clamp(cx + d6NormalRandom() * dist.sx, dist.xMin, dist.xMax);
+	const y = d6Clamp(dist.cy + d6NormalRandom() * dist.sy, dist.yMin, dist.yMax);
+	return { x: Math.round(x), y: Math.round(y), cx: Math.round(cx), cy: dist.cy };
+}
+
 export class Func323 implements IFuncOrigin {
 	id = 323;
 	name = '六道觉';
@@ -1980,8 +2051,16 @@ export class Func323 implements IFuncOrigin {
 					}
 				}
 
-				// 横幅命中时只点文字附近的小块；否则保持原来的固定窄条。
+				// 点击策略：
+				// - 首点/无锚点重试：从标定的截断正态分布随机取一个点；
+				// - 横幅锚点命中：点文字附近的小块（仍由 regionClick 加随机抖动）；
+				// - 没有标定分布的 slot：保留原固定窄条。
+				// 每次只点一个点，不做固定连击；重试次数由步数状态机的时间门控决定。
 				let clickOper: number[][];
+				let clickSource = 'fixed';
+				let clickDevPoint: { x: number; y: number; cx: number; cy: number } | null = null;
+				let anchorDevX = 0;
+				let anchorDevY = 0;
 				if (anchor) {
 					const halfW = Math.max(D6_MAP_CLICK_HALF_W, Math.round(6 * anchorScale));
 					const halfH = Math.max(8, Math.round(8 * anchorScale));
@@ -1992,16 +2071,48 @@ export class Func323 implements IFuncOrigin {
 						Math.round(anchor.y) + halfH,
 						slotOper[4] || 500,
 					]];
+					clickSource = 'anchor';
+					// 把真实横幅 x 缓存为后续随机分布的中心；只缓存 x，y 仍靠分布覆盖。
+					const cacheRect = D6_MAP_SLOT_DEV_RECTS[slotIndex];
+					const dist = D6_MAP_CLICK_DIST[slotIndex];
+					if (cacheRect && dist && anchorScale > 0) {
+						const devCx = (cacheRect[0] + cacheRect[2]) / 2;
+						const devCy = (cacheRect[1] + cacheRect[3]) / 2;
+						const screenCx = (slotOper[0] + slotOper[2]) / 2;
+						const screenCy = (slotOper[1] + slotOper[3]) / 2;
+						anchorDevX = devCx + (anchor.x - screenCx) / anchorScale;
+						anchorDevY = devCy + (anchor.y - screenCy) / anchorScale;
+						// 只接受离标定中心不超过 35px 的锚点，避免把远处的 UI 文字当成横幅缓存进来。
+						if (isFinite(anchorDevX) && Math.abs(anchorDevX - dist.cx) <= 35) {
+							const prev = d6MapAnchorXCache[slotIndex];
+							d6MapAnchorXCache[slotIndex] = prev === undefined
+								? anchorDevX
+								: prev * 0.5 + anchorDevX * 0.5;
+						}
+					}
 				} else {
-					// 只点选择位中心附近的窄条，避免随机点落到岛屿/水面
-					const clickCx = Math.round((slotOper[0] + slotOper[2]) / 2);
-					clickOper = [[
-						clickCx - D6_MAP_CLICK_HALF_W,
-						slotOper[1],
-						clickCx + D6_MAP_CLICK_HALF_W,
-						slotOper[3],
-						slotOper[4] || 500,
-					]];
+					clickDevPoint = pickD6MapClickPoint(slotIndex);
+					if (clickDevPoint) {
+						const screenPoint = thisScript.helperBridge.helper.GetPoint(clickDevPoint.x, clickDevPoint.y, center);
+						clickOper = [[
+							screenPoint.x - 1,
+							screenPoint.y - 1,
+							screenPoint.x + 1,
+							screenPoint.y + 1,
+							slotOper[4] || 500,
+						]];
+						clickSource = 'random';
+					} else {
+						// 没有标定分布的 slot（four-1/3/4）保留原固定窄条
+						const clickCx = Math.round((slotOper[0] + slotOper[2]) / 2);
+						clickOper = [[
+							clickCx - D6_MAP_CLICK_HALF_W,
+							slotOper[1],
+							clickCx + D6_MAP_CLICK_HALF_W,
+							slotOper[3],
+							slotOper[4] || 500,
+						]];
+					}
 				}
 				const stepLeftBefore = g.d6jueStepLeft || 0;
 				const stepNo = getStepTracker().stepNo;
@@ -2023,6 +2134,14 @@ export class Func323 implements IFuncOrigin {
 					nodes: state.reachable.map(n => n.type).join('/'),
 					target: choice.target.type,
 					slot: choice.slot,
+					clickSource,
+					clickRetry: retriedClick ? 1 : 0,
+					clickPx: Math.round((clickOper[0][0] + clickOper[0][2]) / 2),
+					clickPy: Math.round((clickOper[0][1] + clickOper[0][3]) / 2),
+					clickDevX: clickDevPoint ? clickDevPoint.x : Math.round(anchorDevX),
+					clickDevY: clickDevPoint ? clickDevPoint.y : Math.round(anchorDevY),
+					clickDistCx: clickDevPoint ? clickDevPoint.cx : 0,
+					clickDistCy: clickDevPoint ? clickDevPoint.cy : 0,
 					clickX1: clickOper[0][0],
 					clickY1: clickOper[0][1],
 					clickX2: clickOper[0][2],
@@ -2043,10 +2162,12 @@ export class Func323 implements IFuncOrigin {
 				if (choice.target.type === '绽放' && stepLeftBefore > 0 && [5, 10, 15, 20].indexOf(stepNo) === -1) {
 					console.log(`[d6jue-map] 绽放出现在第${stepNo}步（预期5/10/15/20），请检查步数记录`);
 				}
-				const anchorText = anchor
-					? `横幅锚点=${Math.round(anchor.x)},${Math.round(anchor.y)}(${anchor.w}x${anchor.h},score=${anchor.score.toFixed(2)},${anchorMs}ms)`
-					: `固定选择位(${anchorMs}ms)`;
-				console.log(`[d6jue-map] 点击 ${choice.target.type}@${d6MapColName(choice.target.col)}，主地图选择位=${choice.slot}(${choice.index + 1}/${choice.count})，${anchorText}，点击区=${clickOper[0][0]},${clickOper[0][1]}-${clickOper[0][2]},${clickOper[0][3]}，剩余${stepLeftBefore}步（待确认）`);
+				const clickText = clickSource === 'random' && clickDevPoint
+					? `随机分布点=${clickDevPoint.x},${clickDevPoint.y}(中心${clickDevPoint.cx},${clickDevPoint.cy})`
+					: (anchor
+						? `横幅锚点=${Math.round(anchor.x)},${Math.round(anchor.y)}(${anchor.w}x${anchor.h},score=${anchor.score.toFixed(2)},${anchorMs}ms)`
+						: `固定选择位(${anchorMs}ms)`);
+				console.log(`[d6jue-map] 点击 ${choice.target.type}@${d6MapColName(choice.target.col)}，主地图选择位=${choice.slot}(${choice.index + 1}/${choice.count})，方式=${clickSource}${retriedClick ? '(重试)' : ''}，${clickText}，实际点=${Math.round((clickOper[0][0] + clickOper[0][2]) / 2)},${Math.round((clickOper[0][1] + clickOper[0][3]) / 2)}，剩余${stepLeftBefore}步（待确认）`);
 				return true;
 			}
 			console.log('[d6jue-map] 点击冷却中');

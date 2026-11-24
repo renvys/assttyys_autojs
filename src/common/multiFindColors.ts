@@ -2125,7 +2125,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 	// 以下为黑名单/注意buff：只取图标色，不取文字色（六道·混沌/六道·偶戏/妖力化身/攻击加成/炽焚天火/背水一战均已取色）
 	'六道觉_buff_六道混沌': {
 		region: [left, 1280, 720, 60, 140, 900, 260],
-		similar: 80,
+		similar: 88,
 		desc: [
 			[
 				1280, 720,
@@ -2143,7 +2143,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 	},
 	'六道觉_buff_六道偶戏': {
 		region: [left, 1280, 720, 60, 140, 900, 260],
-		similar: 80,
+		similar: 88,
 		desc: [
 			[
 				1280, 720,
@@ -2159,10 +2159,10 @@ const multiFindColors: IMultiFindColorsOrigin = {
 		]
 	},
 	// 攻击加成：仅用于识别后按黑名单排除，不要选
-	// similar 92：80 会在「命中加成/防御加成/抵抗加成」三张未知卡上误命中第一张
+	// similar 96：92 仍会在「暴伤加成/防御加成/命中加成」上误命中（误命中点相似度约 92%~94%）
 	'六道觉_buff_攻击加成': {
 		region: [left, 1280, 720, 60, 140, 900, 260],
-		similar: 92,
+		similar: 96,
 		desc: [
 			[
 				1280, 720,
@@ -2181,7 +2181,7 @@ const multiFindColors: IMultiFindColorsOrigin = {
 	},
 	'六道觉_buff_妖力化身': {
 		region: [left, 1280, 720, 60, 140, 900, 260],
-		similar: 80,
+		similar: 88,
 		desc: [
 			[
 				1280, 720,
@@ -2217,9 +2217,10 @@ const multiFindColors: IMultiFindColorsOrigin = {
 			],
 		]
 	},
+	// similar 92：80 会误命中「洞察之力」；真·背水一战相似度约 99%
 	'六道觉_buff_背水一战': {
 		region: [left, 1280, 720, 60, 140, 900, 260],
-		similar: 80,
+		similar: 92,
 		desc: [
 			[
 				1280, 720,
