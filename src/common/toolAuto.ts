@@ -221,7 +221,10 @@ export function getNormalRandom(range: [number, number], mean: number): number {
  * @returns
  */
 export function getRegionBiasRnd2(region, pointBias, influence) {
-	const [meanX, meanY] = pointBias;
+	let [meanX, meanY] = pointBias;
+	// 防御：均值不是有限数时退回区间中心，避免 NaN 传到 automator.press。
+	if (!isFinite(meanX)) meanX = (region[0] + region[2]) / 2;
+	if (!isFinite(meanY)) meanY = (region[1] + region[3]) / 2;
 	const sdX = 0.1 / (influence * influence) * (region[2] - region[0]);
 	const sdY = 0.1 / (influence * influence) * (region[3] - region[1]);
 	let u = 0,
@@ -267,14 +270,20 @@ export function hash(lowerBound: number, upperBound: number, str: string): numbe
  * @returns
  */
 export function strHashToNum(str, start, end) {
-	const sStart = (end - start) / 4 + start;
-	const sEnd = (start - end) / 4 + end;
+	// 统一成 lo..hi，兼容反向区间；区间过窄时取中点。
+	// 地图随机点会构造 2px 宽/高的点击区，原公式的模数是 0，会返回 NaN，
+	// 最终在 automator.press(NaN, NaN) 抛 “Cannot convert NaN to java.lang.Integer”。
+	const lo = Math.min(start, end);
+	const hi = Math.max(start, end);
+	const sStart = lo + (hi - lo) / 4;
+	const span = (hi - lo) / 2 - 1;
+	if (!(span > 0)) return (lo + hi) / 2;
 	let sum = 0;
 	const factor = 13;
 	for (let i = 0; i < str.length; i++) {
 		sum += str.charCodeAt(i) * factor;
 	}
-	return sum * Math.max((sum % factor), 1) % (sEnd - sStart - 1) + sStart;
+	return sum * Math.max((sum % factor), 1) % span + sStart;
 }
 
 /**

@@ -23,6 +23,8 @@ let bossDetectLogged = false;
 let shopGridMissLogged = false;
 let shopEnterTime = 0;
 let lastWalletOcrTime = 0;
+// buff 等待期间已经并行跑过钱包 OCR 时，跳过本轮调用方紧接着的重复 OCR。
+let d6BuffWalletOcrSkipUntil = 0;
 // buff/舞技选择后锁住，直到选择界面消失，防止切换动画期间同一屏被重复点击、重复记账
 let buffSelectLockActive = false;
 let buffSelectLockUntil = 0;
@@ -47,6 +49,7 @@ let d6HuanxiPendingTime = 0;
 let d6HuanxiPendingSig = '';
 // 按小地图画面哈希缓存识别结果，避免冷却/等待期间对同一帧重复跑 NCC
 let mapStateCache: { hash: string; state: D6MapState | null } | null = null;
+let mapStateCacheTime = 0;
 // 最近一次成功读取的小地图画面哈希：给步数状态机判断“点击后是否发生转场/动画”
 let lastMapHash = '';
 // 步数状态机：地图推进为主，右上角回合数字只做校验/恢复
@@ -137,6 +140,10 @@ const D6_TOTAL_STEPS = 20;
 const D6_MAP_SIG_WAIT = 700;
 const D6_MAP_SETTLE_MS = 1000;
 const D6_MAP_CLICK_HALF_W = 6;
+// readMapState 的短 TTL 缓存：同一行在稳定/确认阶段会以约 1.5s 间隔被重复读取，
+// 800ms 覆盖不到（实机几乎不命中）；改成 1800ms，覆盖同一行的第二次确认读，
+// 同时远小于岛屿/事件 2s+ 的持续时间，不会把旧行当成新行。
+const D6_MAP_STATE_CACHE_TTL_MS = 1800;
 // 这些 operator 属于地图选择阶段，命中时不能当作“已进入岛屿”的证据。
 // 0~3 是进入副本/开启，37/44 是唤息亮暗；其余 operator 在 stepPending 期间命中
 // 都说明已经离开地图、进入岛屿事件/战斗/商店/buff 等界面。
@@ -161,16 +168,15 @@ const D6_BUFF_REFRESH_COST = 50;
 // buff 三张卡的图标区（开发坐标 1280x720）：入场/刷新动画期间会整体变化。
 // 刷新后轮询这里的外接矩形哈希，连续稳定后才允许扫描/选卡。
 const D6_BUFF_CARDS_DEV_REGION = { x0: 60, y0: 140, x1: 900, y1: 260 } as const;
-// 入场先给一段最小等待（实机视频入场动画约 1.2s），再按卡面 hash 判断稳定
-const D6_BUFF_ENTER_MIN_MS = 1000;
-// 刷新点击后先等过旧卡展示/变暗阶段（实机新卡约 2.2~2.6s 才落），再轮询变化
+// 入场/刷新最小等待（视频实测入场卡面约 0.5~0.8s 已可读，刷新新卡约 2.2~2.6s 才落）
+const D6_BUFF_ENTER_MIN_MS = 900;
 const D6_BUFF_REFRESH_MIN_MS = 2200;
-const D6_BUFF_HASH_POLL_MS = 150;
-// 入场没有“旧卡”干扰，连续 2 次稳定即可；刷新必须排除旧卡/动画中间帧，用 3 次
-const D6_BUFF_ENTER_STABLE_COUNT = 2;
-const D6_BUFF_REFRESH_STABLE_COUNT = 3;
-const D6_BUFF_HASH_MAX_MS = 4500;
-// 超过这个间隔再次命中 buff 界面，视为新界面（正常一次刷新等待约 3~4s）
+// 固定落位等待：卡面有持续闪光/粒子，轮询“连续相同 hash”在实机上几乎必定超时，
+// 旧实现每次 enter/refresh 都要跑满 4.5s，刷新后还会再补一次 enter，单次刷新约 9s。
+// 改为按实测动画时长固定等待，等待后只读一次 hash 做日志，不再用 hash 阻塞。
+const D6_BUFF_ENTER_SETTLE_MS = 900;
+const D6_BUFF_REFRESH_SETTLE_MS = 2700;
+// 超过这个间隔再次命中 buff 界面，视为新界面（正常一次刷新约 2.7~3.5s）
 const D6_BUFF_SCREEN_GAP_MS = 8000;
 // 每座岛 +50 只记一次：战斗岛在进入战斗/挑战时，商店在退出时，其他事件在完成时。
 // 挑战的 50 就是这个，不再额外加；商店入口 OCR 证明此时尚未到账。
@@ -1098,6 +1104,12 @@ export class Func323 implements IFuncOrigin {
 		// OCR 用于校验/校准每岛固定收益计算：读到值后和计算值比较，差值合理才同步。
 		const readWanxianglingOcr = (tag: string) => {
 			if (thisConf.walletOcr === false) return;
+			// 等待卡面动画期间已经并行跑过 buff OCR，调用方紧接着的那次直接跳过。
+			// 只跳过一次：消费后立刻清零，避免影响下一次刷新的费用校验。
+			if (tag === 'buff' && now() < d6BuffWalletOcrSkipUntil) {
+				d6BuffWalletOcrSkipUntil = 0;
+				return;
+			}
 			const t = now();
 			if (t - lastWalletOcrTime < 1200) return;
 			lastWalletOcrTime = t;
@@ -1229,6 +1241,7 @@ export class Func323 implements IFuncOrigin {
 			d6BuffRefreshCount = 0;
 			d6BuffLastRefreshTime = 0;
 			d6BuffScreenLastSeen = 0;
+			d6BuffWalletOcrSkipUntil = 0;
 		};
 
 		// 读取当前缓存帧的 buff 卡面哈希。
@@ -1257,62 +1270,51 @@ export class Func323 implements IFuncOrigin {
 		};
 
 		/**
-		 * 等 buff 卡面动画结束：连续 N 次哈希相同才认为稳定。
-		 * 刷新场景传入 prevHash，必须看到卡面变化后才接受稳定值，
-		 * 否则刷新动画前 1~2s 旧卡仍然稳定，会误判成“新卡已出现”。
-		 * 返回 false 表示超时/取图失败，调用方仍按当前画面继续，不能卡死。
+		 * 等 buff 卡面动画结束。
+		 *
+		 * 旧实现轮询“连续 N 次 hash 完全相同”，但卡面有持续闪光/粒子，实机日志里
+		 * 几乎每次都会跑满 4500ms 超时；刷新超时后 settled=false 还会再补一次
+		 * enter 等待，单次刷新约 9s。现在改成按实测动画时长固定等待：
+		 * - enter 约 0.9s，覆盖入场淡入（视频实测卡面约 0.5~0.8s 已可读）；
+		 * - refresh 约 2.7s，覆盖旧卡变暗 + 新卡落位（实测 2.2~2.6s）。
+		 * duringWait 用于把钱包 OCR 并行到卡面动画里；等待总时长仍按 settleMs
+		 * 计算（OCR 花掉的时间从 sleep 里扣掉），不会读到旧卡。
+		 * 等待后只读一次 hash 用于日志/前后对比，不再用 hash 阻塞。
 		 */
-		const waitBuffCardsStable = (reason: string, minMs: number, prevHash = ''): boolean => {
+		const waitBuffCardsStable = (reason: string, minMs: number, prevHash = '', duringWait?: () => void): boolean => {
 			const t0 = now();
-			let lastHash = '';
-			let sameCount = 0;
-			let hashMiss = 0;
-			let changed = false;
-			let timeout = false;
-			if (minMs > 0) sleep(minMs);
-			const needStable = reason === 'refresh' ? D6_BUFF_REFRESH_STABLE_COUNT : D6_BUFF_ENTER_STABLE_COUNT;
-			// eslint-disable-next-line no-constant-condition
-			while (true) {
-				if (now() - t0 >= D6_BUFF_HASH_MAX_MS) {
-					timeout = true;
-					break;
+			const settleMs = reason === 'refresh'
+				? Math.max(minMs, D6_BUFF_REFRESH_SETTLE_MS)
+				: Math.max(minMs, D6_BUFF_ENTER_SETTLE_MS);
+			if (duringWait) {
+				try {
+					duringWait();
+				} catch (e) {
+					// 并行任务失败不影响卡面等待
 				}
-				thisScript.keepScreen(); // 更新缓存帧，否则 GetBitmap/FindMultiColor 都读旧图
-				const hash = readBuffCardsHash();
-				if (!hash) {
-					hashMiss++;
-					if (hashMiss >= 4) {
-						timeout = true;
-						break;
-					}
-				} else {
-					if (prevHash && hash !== prevHash) changed = true;
-					if (hash === lastHash) {
-						sameCount++;
-					} else {
-						lastHash = hash;
-						sameCount = 1;
-					}
-					if (sameCount >= needStable && (changed || !prevHash)) break;
-				}
-				sleep(D6_BUFF_HASH_POLL_MS);
 			}
+			const remain = settleMs - (now() - t0);
+			if (remain > 0) sleep(remain);
+			// 更新缓存帧后再读一次卡面 hash；只用于日志，不参与“是否继续等待”的判断。
+			thisScript.keepScreen();
+			const hash = readBuffCardsHash();
+			const changed = !!(prevHash && hash && hash !== prevHash);
 			const waited = now() - t0;
-			perfLog('buff.wait', waited, `reason=${reason} changed=${changed ? 1 : 0} timeout=${timeout ? 1 : 0} refresh=${d6BuffRefreshCount}`, true);
+			perfLog('buff.wait', waited, `reason=${reason} changed=${changed ? 1 : 0} timeout=0 refresh=${d6BuffRefreshCount}`, true);
 			d6jueAnalysisLog('buff.wait', {
 				reason,
 				waited,
 				changed: changed ? 1 : 0,
-				timeout: timeout ? 1 : 0,
-				hash: lastHash,
+				timeout: 0,
+				hash,
 				refresh: d6BuffRefreshCount,
 				lei: g.d6jueLeiLevel || 0,
 				power: g.d6juePowerLevel || 0,
 				wallet: g.d6jueWanxiangling || 0,
 				step: g.d6jueStepLeft || 0,
 			});
-			console.log(`[d6jue-buff] 卡面等待(${reason}) ${waited}ms changed=${changed ? 'T' : 'F'} timeout=${timeout ? 'T' : 'F'} hash=${lastHash || '?'}`);
-			return !timeout;
+			console.log(`[d6jue-buff] 卡面等待(${reason}) ${waited}ms changed=${changed ? 'T' : 'F'} timeout=F hash=${hash || '?'}`);
+			return true;
 		};
 		// 舞技强化/buff 界面右下角刷新：OCR 可用时等下一次读数校验费用
 		const refreshBuffSelection = () => {
@@ -1338,8 +1340,17 @@ export class Func323 implements IFuncOrigin {
 			thisScript.regionClick([[1180, 625, 1235, 675, 0]]);
 			// 固定 1500ms 改成卡面稳定等待：旧卡会继续显示 1~2s，
 			// 提前判定会读到上一组，并导致多刷一次/最后一次的卡从未被检查。
-			const settled = waitBuffCardsStable('refresh', D6_BUFF_REFRESH_MIN_MS, prevHash);
-			if (!settled) d6BuffScreenSettled = false;
+			// 点击后钱包已立刻扣费，OCR 放在卡面动画期间并行跑；调用方紧接着的
+			// readWanxianglingOcr('buff') 用 skipUntil 跳过，避免重复读。
+			waitBuffCardsStable('refresh', D6_BUFF_REFRESH_MIN_MS, prevHash, () => {
+				// 点击后游戏钱包约 0.3s 才刷新；先等一小段再 OCR，避免读到扣费前的值。
+				// 这段等待和 OCR 都发生在 2.7s 卡面动画内，不额外增加总时长。
+				sleep(350);
+				readWanxianglingOcr('buff');
+				d6BuffWalletOcrSkipUntil = now() + 3000;
+			});
+			// 固定等待已覆盖新卡落位：保持 settled=true，下一轮不再重复 enter 等待。
+			d6BuffScreenSettled = true;
 			d6BuffScreenLastSeen = now();
 		};
 
@@ -1564,6 +1575,15 @@ export class Func323 implements IFuncOrigin {
 		// 右上角小地图结构识别 + 自动选择点击
 		const readMapState = () => {
 			const t0 = now();
+			// 稳定地图行的短 TTL 复用：地图行没有点击/事件不会自己变，
+			// 避免 handleMapNodes 每次轮询都对同一帧重跑 NCC（实机单次约 700~900ms）。
+			if (mapStateCache && mapStateCache.state && mapStateCacheTime
+				&& t0 - mapStateCacheTime <= D6_MAP_STATE_CACHE_TTL_MS
+			) {
+				lastMapHash = mapStateCache.hash;
+				perfLog('map.ttl_cache', 0, `age=${t0 - mapStateCacheTime} nodes=${mapStateCache.state.nodes.length}`, true);
+				return mapStateCache.state;
+			}
 			const readIndex = mapReadCount++;
 			lastMapHash = '';
 			try {
@@ -1619,6 +1639,7 @@ export class Func323 implements IFuncOrigin {
 						}
 					}
 					mapStateCache = { hash, state };
+					mapStateCacheTime = now();
 					lastMapHash = hash;
 					const t3 = now();
 					perfLog('map.read', t3 - t0, `first=${readIndex === 0 ? 1 : 0} bitmap=${t1 - t0} pixels=${t2 - t1} analyze=${t3 - t2} nodes=${state ? state.nodes.length : 0}`, true);
@@ -2330,6 +2351,11 @@ export class Func323 implements IFuncOrigin {
 			shopGridMissLogged = false;
 			shopEnterTime = 0;
 			mapStateCache = null;
+			mapStateCacheTime = 0;
+			d6BuffScreenSettled = false;
+			d6BuffRefreshCount = 0;
+			d6BuffScreenLastSeen = 0;
+			d6BuffWalletOcrSkipUntil = 0;
 			g.d6jueLoop = 0;
 			g.d6jueCoreBuff = 0;
 			g.d6jueSkillCount = 0;
@@ -2959,7 +2985,10 @@ export class Func323 implements IFuncOrigin {
 					d6BuffRefreshCount = 0;
 					d6BuffLastRefreshTime = 0;
 				}
-				waitBuffCardsStable('enter', D6_BUFF_ENTER_MIN_MS);
+				waitBuffCardsStable('enter', D6_BUFF_ENTER_MIN_MS, '', () => {
+					readWanxianglingOcr('buff');
+					d6BuffWalletOcrSkipUntil = now() + 3000;
+				});
 				d6BuffScreenSettled = true;
 				thisScript.keepScreen(); // 让下面的 selectLei 用稳定后的卡面帧
 			}
