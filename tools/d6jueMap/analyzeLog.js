@@ -95,6 +95,10 @@ const all = {
 	ocrReadErrors: 0,
 	costChecks: 0,
 	costVerified: 0,
+	buffWaits: 0,
+	buffWaitMs: [],
+	buffWaitTimeouts: 0,
+	buffWaitChanged: 0,
 	huanxiConfirm: 0,
 	huanxiUnverified: 0,
 	battleFail: 0,
@@ -180,9 +184,13 @@ runs.forEach((run, index) => {
 	const stockViews = shops.reduce((sum, s) => sum + s.maxStock, 0);
 	const huanxiEvents = by('map.huanxi');
 	const leiChecks = by('buff.lei_check');
-	const leiCheckHit = leiChecks.filter(e => e.data.found === '1').length;
+	const leiCheckHit = leiChecks.filter(e => e.data.found === '1' || e.data.found === 'true').length;
 	const scans = by('buff.scan');
 	const scanLei = scans.filter(e => (e.data.cards || '').split('/').includes('六道轰雷')).length;
+	const buffWaits = by('buff.wait');
+	const buffWaitMs = buffWaits.map(e => num(e.data.waited)).filter(v => v > 0);
+	const buffWaitTimeouts = buffWaits.filter(e => e.data.timeout === '1').length;
+	const buffWaitChanged = buffWaits.filter(e => e.data.reason === 'refresh' && e.data.changed === '1').length;
 	const lastState = ev.slice().reverse().find(e => e.data.wallet !== undefined) || { data: {} };
 	const finalLei = runEnd ? num(runEnd.data.lei) : num((mapSteps.slice(-1)[0] || { data: {} }).data.lei);
 	const finalPower = runEnd ? num(runEnd.data.power) : num((mapSteps.slice(-1)[0] || { data: {} }).data.power);
@@ -265,7 +273,7 @@ runs.forEach((run, index) => {
 	const huanxiConfirm = by('map.huanxi_confirm').length;
 	const huanxiUnverified = by('map.huanxi_unverified').length;
 	console.log(`唤息: ${huanxiEvents.length}次 ${huanxiEvents.length ? '(' + fmtCounts(huanxiEvents.reduce((o, e) => { inc(o, e.data.reason || '?'); return o; }, {})) + ')' : ''}, 费用确认${huanxiConfirm}次, 未确认${huanxiUnverified}次`);
-	console.log(`buff: 轰雷检测命中${leiCheckHit}/${leiChecks.length}, 扫描命中${scanLei}/${scans.length}, 刷新${by('buff.refresh').length}次`);
+	console.log(`buff: 轰雷检测命中${leiCheckHit}/${leiChecks.length}, 扫描命中${scanLei}/${scans.length}, 刷新${by('buff.refresh').length}次, 卡面等待${buffWaits.length}次(平均${avg(buffWaitMs)}ms, 超时${buffWaitTimeouts}, 刷新见变化${buffWaitChanged})`);
 	console.log(`unknown: ${by('map.unknown').length}次, boss: ${by('boss.enter').length ? '已到达' : '未到达'}`);
 
 	all.clear += runEnd && runEnd.data.result === 'clear' ? 1 : 0;
@@ -298,6 +306,10 @@ runs.forEach((run, index) => {
 	all.ocrReadErrors += ocrReadErrors;
 	all.costChecks += costChecks.length;
 	all.costVerified += costOk;
+	all.buffWaits += buffWaits.length;
+	all.buffWaitMs.push(...buffWaitMs);
+	all.buffWaitTimeouts += buffWaitTimeouts;
+	all.buffWaitChanged += buffWaitChanged;
 	all.huanxiConfirm += huanxiConfirm;
 	all.huanxiUnverified += huanxiUnverified;
 	for (const v of ocrDiffs) all.ocrMax = Math.max(all.ocrMax, Math.abs(v));
@@ -334,6 +346,9 @@ if (Object.keys(all.stepConfirmReasons).length || all.stepCalibrates || all.step
 }
 console.log(`万相铃OCR: ${all.ocrCount}次, 记账偏差${all.ocrBad}次, 最大偏差=${all.ocrMax}, 读取异常${all.ocrReadErrors}次, OCR校准${all.ocrSyncs}次(最大=${all.ocrSyncMax})`);
 console.log(`刷新费用校验: ${all.costChecks}次, 通过${all.costVerified}, 未通过${all.costChecks - all.costVerified}`);
+if (all.buffWaits) {
+	console.log(`buff卡面等待: ${all.buffWaits}次, 平均${avg(all.buffWaitMs)}ms, 超时${all.buffWaitTimeouts}次, 刷新见变化${all.buffWaitChanged}次`);
+}
 console.log(`唤息费用确认: ${all.huanxiConfirm}次, 未确认${all.huanxiUnverified}次`);
 console.log(`战斗失败: ${all.battleFail}次, 首领超时: ${all.bossTimeout}次`);
 console.log(`主动/单混沌唤息: ${all.huanxi}次`);

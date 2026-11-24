@@ -26,6 +26,12 @@ let lastWalletOcrTime = 0;
 // buff/舞技选择后锁住，直到选择界面消失，防止切换动画期间同一屏被重复点击、重复记账
 let buffSelectLockActive = false;
 let buffSelectLockUntil = 0;
+// buff 界面卡面稳定状态：入场/刷新动画结束前读卡会一直读到上一组，
+// 必须等三张卡真正换完（卡面 hash 连续稳定）再扫描/决定下一次刷新。
+let d6BuffScreenSettled = false;
+let d6BuffRefreshCount = 0;
+let d6BuffLastRefreshTime = 0;
+let d6BuffScreenLastSeen = 0;
 // 六道觉每座岛的进岛 +50 只记一次；buff +100 按选buff界面计（混沌精英可两次）。
 // 岛屿 key 在点击主地图节点时更新，重试同一节点不会重置。
 let d6IslandKey = '';
@@ -63,6 +69,22 @@ let stepCounterRead: {
 function d6MapImageHash(image: { width: number; height: number; data: any }): string {
 	let h = 2166136261;
 	const stepX = Math.max(1, Math.floor(image.width / 12));
+	const stepY = Math.max(1, Math.floor(image.height / 12));
+	for (let y = 0; y < image.height; y += stepY) {
+		for (let x = 0; x < image.width; x += stepX) {
+			const i = (y * image.width + x) * 4;
+			h = (((h ^ (image.data[i] >> 4)) * 16777619) >>> 0);
+			h = (((h ^ (image.data[i + 1] >> 4)) * 16777619) >>> 0);
+			h = (((h ^ (image.data[i + 2] >> 4)) * 16777619) >>> 0);
+		}
+	}
+	return String(h);
+}
+
+/** buff 卡面哈希：三张卡图标区的颜色量化 + 32x12 抽样，比地图哈希更密，能区分换卡 */
+function d6BuffCardsImageHash(image: { width: number; height: number; data: any }): string {
+	let h = 2166136261;
+	const stepX = Math.max(1, Math.floor(image.width / 32));
 	const stepY = Math.max(1, Math.floor(image.height / 12));
 	for (let y = 0; y < image.height; y += stepY) {
 		for (let x = 0; x < image.width; x += stepX) {
@@ -136,6 +158,20 @@ const D6_SHOP_LEI_PRICE = 200;
 const D6_SHOP_REFRESH_COST = 100;
 const D6_SHOP_REFRESH_MAX = 3;
 const D6_BUFF_REFRESH_COST = 50;
+// buff 三张卡的图标区（开发坐标 1280x720）：入场/刷新动画期间会整体变化。
+// 刷新后轮询这里的外接矩形哈希，连续稳定后才允许扫描/选卡。
+const D6_BUFF_CARDS_DEV_REGION = { x0: 60, y0: 140, x1: 900, y1: 260 } as const;
+// 入场先给一段最小等待（实机视频入场动画约 1.2s），再按卡面 hash 判断稳定
+const D6_BUFF_ENTER_MIN_MS = 1000;
+// 刷新点击后先等过旧卡展示/变暗阶段（实机新卡约 2.2~2.6s 才落），再轮询变化
+const D6_BUFF_REFRESH_MIN_MS = 2200;
+const D6_BUFF_HASH_POLL_MS = 150;
+// 入场没有“旧卡”干扰，连续 2 次稳定即可；刷新必须排除旧卡/动画中间帧，用 3 次
+const D6_BUFF_ENTER_STABLE_COUNT = 2;
+const D6_BUFF_REFRESH_STABLE_COUNT = 3;
+const D6_BUFF_HASH_MAX_MS = 4500;
+// 超过这个间隔再次命中 buff 界面，视为新界面（正常一次刷新等待约 3~4s）
+const D6_BUFF_SCREEN_GAP_MS = 8000;
 // 每座岛 +50 只记一次：战斗岛在进入战斗/挑战时，商店在退出时，其他事件在完成时。
 // 挑战的 50 就是这个，不再额外加；商店入口 OCR 证明此时尚未到账。
 const D6_ISLAND_GAIN = 50;
@@ -1131,7 +1167,8 @@ export class Func323 implements IFuncOrigin {
 						step: g.d6jueStepLeft || 0,
 					});
 					console.log(`[d6jue-wallet] ${pendingSource}费用校验: 预期-${pendingCost} 实际-${costDrop} ${costVerified ? '✓' : '✗'}`);
-				} else if (!valid && pendingCost > 0 && now() - d6PendingRefreshTime > 5000) {
+				} else if (!valid && pendingCost > 0 && now() - d6PendingRefreshTime > 8000) {
+					// 刷新后要等卡面稳定（buff 最长约 4s），再留给下一轮 OCR；超时放宽到 8s
 					d6PendingRefreshCost = 0;
 					d6PendingRefreshSource = '';
 					d6PendingRefreshWalletBefore = 0;
@@ -1186,10 +1223,105 @@ export class Func323 implements IFuncOrigin {
 				console.log(`[d6jue-wallet] OCR(${tag}) 异常: ${e}`);
 			}
 		};
+		// 离开当前 buff 界面/换下一组卡时重置入场与刷新计数
+		const resetBuffScreenState = () => {
+			d6BuffScreenSettled = false;
+			d6BuffRefreshCount = 0;
+			d6BuffLastRefreshTime = 0;
+			d6BuffScreenLastSeen = 0;
+		};
+
+		// 读取当前缓存帧的 buff 卡面哈希。
+		// GetBitmap 读的是本轮 keepScreen 的缓存帧，轮询前必须先 keepScreen() 更新。
+		const readBuffCardsHash = (): string => {
+			try {
+				const helper = thisScript.helperBridge.helper;
+				const region = D6_BUFF_CARDS_DEV_REGION;
+				const sr = helper.GetPoint(region.x0, region.y0, left);
+				const er = helper.GetPoint(region.x1, region.y1, left);
+				if (sr.x >= er.x || sr.y >= er.y) return '';
+				const bitmap = helper.GetBitmap(sr.x, sr.y, er.x, er.y);
+				if (!bitmap) return '';
+				try {
+					return d6BuffCardsImageHash(bitmapToImageData(bitmap));
+				} finally {
+					try {
+						bitmap.recycle();
+					} catch (e) {
+						// 忽略回收异常
+					}
+				}
+			} catch (e) {
+				return '';
+			}
+		};
+
+		/**
+		 * 等 buff 卡面动画结束：连续 N 次哈希相同才认为稳定。
+		 * 刷新场景传入 prevHash，必须看到卡面变化后才接受稳定值，
+		 * 否则刷新动画前 1~2s 旧卡仍然稳定，会误判成“新卡已出现”。
+		 * 返回 false 表示超时/取图失败，调用方仍按当前画面继续，不能卡死。
+		 */
+		const waitBuffCardsStable = (reason: string, minMs: number, prevHash = ''): boolean => {
+			const t0 = now();
+			let lastHash = '';
+			let sameCount = 0;
+			let hashMiss = 0;
+			let changed = false;
+			let timeout = false;
+			if (minMs > 0) sleep(minMs);
+			const needStable = reason === 'refresh' ? D6_BUFF_REFRESH_STABLE_COUNT : D6_BUFF_ENTER_STABLE_COUNT;
+			// eslint-disable-next-line no-constant-condition
+			while (true) {
+				if (now() - t0 >= D6_BUFF_HASH_MAX_MS) {
+					timeout = true;
+					break;
+				}
+				thisScript.keepScreen(); // 更新缓存帧，否则 GetBitmap/FindMultiColor 都读旧图
+				const hash = readBuffCardsHash();
+				if (!hash) {
+					hashMiss++;
+					if (hashMiss >= 4) {
+						timeout = true;
+						break;
+					}
+				} else {
+					if (prevHash && hash !== prevHash) changed = true;
+					if (hash === lastHash) {
+						sameCount++;
+					} else {
+						lastHash = hash;
+						sameCount = 1;
+					}
+					if (sameCount >= needStable && (changed || !prevHash)) break;
+				}
+				sleep(D6_BUFF_HASH_POLL_MS);
+			}
+			const waited = now() - t0;
+			perfLog('buff.wait', waited, `reason=${reason} changed=${changed ? 1 : 0} timeout=${timeout ? 1 : 0} refresh=${d6BuffRefreshCount}`, true);
+			d6jueAnalysisLog('buff.wait', {
+				reason,
+				waited,
+				changed: changed ? 1 : 0,
+				timeout: timeout ? 1 : 0,
+				hash: lastHash,
+				refresh: d6BuffRefreshCount,
+				lei: g.d6jueLeiLevel || 0,
+				power: g.d6juePowerLevel || 0,
+				wallet: g.d6jueWanxiangling || 0,
+				step: g.d6jueStepLeft || 0,
+			});
+			console.log(`[d6jue-buff] 卡面等待(${reason}) ${waited}ms changed=${changed ? 'T' : 'F'} timeout=${timeout ? 'T' : 'F'} hash=${lastHash || '?'}`);
+			return !timeout;
+		};
 		// 舞技强化/buff 界面右下角刷新：OCR 可用时等下一次读数校验费用
 		const refreshBuffSelection = () => {
 			const before = g.d6jueWanxiangling || 0;
-			thisScript.regionClick([[1180, 625, 1235, 675, 1500]]);
+			// 点击前记录卡面：刷新后必须看到卡面变化，不能只等“稳定”
+			const prevHash = readBuffCardsHash();
+			d6BuffRefreshCount++;
+			d6BuffLastRefreshTime = now();
+			// 费用挂起和日志都放在点击前：日志时间≈真实点击时间，便于和视频对齐
 			beginPendingRefreshCost(D6_BUFF_REFRESH_COST, 'buff_refresh', before);
 			console.log(`[d6jue-lei] 刷新buff -${D6_BUFF_REFRESH_COST}，当前计算余额=${g.d6jueWanxiangling}（等OCR校验）`);
 			d6jueAnalysisLog('buff.refresh', {
@@ -1200,7 +1332,15 @@ export class Func323 implements IFuncOrigin {
 				lei: g.d6jueLeiLevel || 0,
 				power: g.d6juePowerLevel || 0,
 				step: g.d6jueStepLeft || 0,
+				refresh: d6BuffRefreshCount,
+				prevHash,
 			});
+			thisScript.regionClick([[1180, 625, 1235, 675, 0]]);
+			// 固定 1500ms 改成卡面稳定等待：旧卡会继续显示 1~2s，
+			// 提前判定会读到上一组，并导致多刷一次/最后一次的卡从未被检查。
+			const settled = waitBuffCardsStable('refresh', D6_BUFF_REFRESH_MIN_MS, prevHash);
+			if (!settled) d6BuffScreenSettled = false;
+			d6BuffScreenLastSeen = now();
 		};
 
 		// buff 黑名单：默认永不选择；所有名称都需在 multiFindColors.ts 配置 六道觉_buff_<名称>
@@ -1282,6 +1422,8 @@ export class Func323 implements IFuncOrigin {
 				wallet: g.d6jueWanxiangling || 0,
 				pending: g.d6jueWanxianglingPending || 0,
 				step: g.d6jueStepLeft || 0,
+				refresh: d6BuffRefreshCount,
+				sinceRefresh: d6BuffLastRefreshTime ? now() - d6BuffLastRefreshTime : -1,
 			});
 			return cards;
 		};
@@ -1320,6 +1462,8 @@ export class Func323 implements IFuncOrigin {
 			}
 			thisScript.regionClick([[button[0], button[1], button[2], button[3], 500]]);
 			lockBuffSelect();
+			// 选卡后界面会关闭或换下一组卡（混沌精英第二轮），下次命中按新界面重新等入场
+			resetBuffScreenState();
 			// 每个选buff界面 +100；同一屏的重复点击由选择锁挡住
 			addWanxiangling(D6_ISLAND_BUFF_GAIN, `选buff:${name || '未知'}`);
 			if (name === '六道轰雷') {
@@ -1353,6 +1497,8 @@ export class Func323 implements IFuncOrigin {
 				power: g.d6juePowerLevel || 0,
 				wallet: g.d6jueWanxiangling || 0,
 				step: g.d6jueStepLeft || 0,
+				refresh: d6BuffRefreshCount,
+				sinceRefresh: d6BuffLastRefreshTime ? now() - d6BuffLastRefreshTime : -1,
 			});
 			if (!lei) return false;
 			return clickBuffCard(cardIndexByX(lei.x), '六道轰雷');
@@ -1365,6 +1511,7 @@ export class Func323 implements IFuncOrigin {
 			if (!button) return false;
 			thisScript.regionClick([[button[0], button[1], button[2], button[3], 500]]);
 			lockBuffSelect();
+			resetBuffScreenState();
 			addWanxiangling(D6_ISLAND_BUFF_GAIN, `死局选buff:${name || '未知'}`);
 			g.d6jueCantClear = true;
 			g.d6jueOtherBuffSelected = true;
@@ -2213,6 +2360,7 @@ export class Func323 implements IFuncOrigin {
 			g.d6jueHuanxiShop = 0;
 			buffSelectLockActive = false;
 			buffSelectLockUntil = 0;
+			resetBuffScreenState();
 			g.d6jueLastMapSig = '';
 			g.d6jueLastMapSigTime = 0;
 			g.d6jueStepPending = false;
@@ -2784,6 +2932,7 @@ export class Func323 implements IFuncOrigin {
 			const powerBefore = g.d6juePowerLevel || 0;
 			g.d6juePowerLevel = powerBefore + 1;
 			lockBuffSelect();
+			resetBuffScreenState();
 			addWanxiangling(D6_ISLAND_BUFF_GAIN, '舞技强化选择');
 			d6jueAnalysisLog('skill.pick', {
 				powerBefore,
@@ -2800,6 +2949,20 @@ export class Func323 implements IFuncOrigin {
 		const refreshDark = oper([49], '六道觉_舞技强化_刷新_暗');
 		if (oper([39], '六道觉_舞技强化_刷新') || refreshDark) {
 			addIslandGainOnce('战斗岛');
+			// 新 buff 界面先等入场动画结束；同一界面的后续轮次（刷新后）不重复等
+			const buffScreenGap = d6BuffScreenLastSeen ? now() - d6BuffScreenLastSeen : Infinity;
+			const isNewBuffScreen = buffScreenGap > D6_BUFF_SCREEN_GAP_MS;
+			if (isNewBuffScreen) resetBuffScreenState();
+			d6BuffScreenLastSeen = now();
+			if (!d6BuffScreenSettled) {
+				if (isNewBuffScreen) {
+					d6BuffRefreshCount = 0;
+					d6BuffLastRefreshTime = 0;
+				}
+				waitBuffCardsStable('enter', D6_BUFF_ENTER_MIN_MS);
+				d6BuffScreenSettled = true;
+				thisScript.keepScreen(); // 让下面的 selectLei 用稳定后的卡面帧
+			}
 			readWanxianglingOcr('buff');
 			const powerLevel = g.d6juePowerLevel || 0;
 			const leiLevel = g.d6jueLeiLevel || 0;
@@ -2810,6 +2973,7 @@ export class Func323 implements IFuncOrigin {
 				if (leiLevel === 0 && selectLei()) return true;
 				if (powerSelectable && oper([40], '六道觉_舞技强化')) {
 					g.d6jueSkillCount = (g.d6jueSkillCount || 0) + 1;
+					resetBuffScreenState();
 					console.log(`[d6jue] 力量等级=${powerLevel}，继续舞技强化`);
 					return true;
 				}
@@ -2824,6 +2988,7 @@ export class Func323 implements IFuncOrigin {
 					}
 					if (oper([40], '六道觉_舞技强化')) {
 						g.d6jueSkillCount = (g.d6jueSkillCount || 0) + 1;
+						resetBuffScreenState();
 						console.log(`[d6jue] 力量等级=${powerLevel}，无轰雷且刷新不可用，选择舞技强化`);
 						return true;
 					}
@@ -2833,6 +2998,7 @@ export class Func323 implements IFuncOrigin {
 					if (selectAllowedBuff()) return true;
 					if (oper([40], '六道觉_舞技强化')) {
 						g.d6jueSkillCount = (g.d6jueSkillCount || 0) + 1;
+						resetBuffScreenState();
 						console.log(`[d6jue] 力量等级=${powerLevel}，继续舞技强化`);
 						return true;
 					}
