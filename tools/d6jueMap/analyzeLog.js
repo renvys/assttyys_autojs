@@ -55,6 +55,29 @@ if (runs.length === 0) {
 	process.exit(1);
 }
 
+// run=0 是脚本启动时的 lazy 初始化（旧版本还混有未分 run 的遗留事件），不是一局；
+// 其他既没有 map.step 也没有 run.end 的 run 只可能来自「重复点击开启」或脚本中途重启（空 run），
+// 统计时跳过，避免多算一局“未结束”、拉低通关率。
+const isPseudoRun = run => run.id === '0';
+const isEmptyRun = run => !isPseudoRun(run)
+	&& !run.events.some(e => e.event === 'map.step')
+	&& !run.events.some(e => e.event === 'run.end');
+const pseudoRuns = runs.filter(isPseudoRun);
+const emptyRuns = runs.filter(isEmptyRun);
+const playRuns = runs.filter(run => !isPseudoRun(run) && !isEmptyRun(run));
+if (playRuns.length === 0) {
+	console.log(`没有解析到有效对局（跳过 run=0 初始化 ${pseudoRuns.length} 个、空 run ${emptyRuns.length} 个），请确认日志内容。`);
+	process.exit(1);
+}
+if (pseudoRuns.length || emptyRuns.length) {
+	const bits = [];
+	if (pseudoRuns.length) bits.push(`run=0 初始化 ${pseudoRuns.length} 个`);
+	if (emptyRuns.length) {
+		bits.push(`空 run ${emptyRuns.length} 个（无 map.step/run.end，通常为重复点击「开启」或脚本重启）: ${emptyRuns.map(r => r.id).join(', ')}`);
+	}
+	console.log(`跳过 ${bits.join('; ')}`);
+}
+
 const num = v => {
 	const n = Number(v);
 	return Number.isFinite(n) ? n : 0;
@@ -112,7 +135,7 @@ const all = {
 	body: 0,
 };
 
-runs.forEach((run, index) => {
+playRuns.forEach((run, index) => {
 	const ev = run.events;
 	const by = name => ev.filter(e => e.event === name);
 	const mapSteps = by('map.step');
@@ -353,8 +376,8 @@ function avg(arr) {
 	return arr.length ? (arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(1) : '-';
 }
 
-console.log(`\n===== 汇总 ${runs.length} 轮 =====`);
-console.log(`通关: ${all.clear}/${runs.length}, 平均耗时: ${avg(all.durations)}s`);
+console.log(`\n===== 汇总 ${playRuns.length} 轮 =====`);
+console.log(`通关: ${all.clear}/${playRuns.length}, 平均耗时: ${avg(all.durations)}s`);
 console.log(`轰雷来源: buff=${all.leiSource.buff}, shop=${all.leiSource.shop}, 未获得=${all.leiSource.none}`);
 console.log(`轰雷获得步数: ${all.leiSteps.join(',') || '-'} (平均 ${avg(all.leiSteps)})`);
 console.log(`力量>=3步数: ${all.powerSteps.join(',') || '-'} (平均 ${avg(all.powerSteps)})`);

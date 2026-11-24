@@ -15,7 +15,8 @@
         "test:d6jue-map": "node tools/d6jueMap/test/runTests.js",
         "test:d6jue-event": "node tools/d6jueMap/test/runEventTests.js",
         "test:d6jue-counter": "node tools/d6jueMap/test/runCounterTests.js",
-        "test:d6jue-step": "node tools/d6jueMap/test/runStepTrackerTests.js"
+        "test:d6jue-step": "node tools/d6jueMap/test/runStepTrackerTests.js",
+        "test:d6jue-log": "node tools/d6jueMap/test/runAnalyzeLogTests.js"
     },
     "author": "",
     "license": "MIT",

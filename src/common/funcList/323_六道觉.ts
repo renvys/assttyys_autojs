@@ -28,6 +28,7 @@ let d6BuffWalletOcrSkipUntil = 0;
 // buff/舞技选择后锁住，直到选择界面消失，防止切换动画期间同一屏被重复点击、重复记账
 let buffSelectLockActive = false;
 let buffSelectLockUntil = 0;
+let buffSelectLockMs = 0;
 // buff 界面卡面稳定状态：入场/刷新动画结束前读卡会一直读到上一组，
 // 必须等三张卡真正换完（卡面 hash 连续稳定）再扫描/决定下一次刷新。
 let d6BuffScreenSettled = false;
@@ -61,6 +62,8 @@ let mapStateCacheTime = 0;
 let lastMapHash = '';
 // 步数状态机：地图推进为主，右上角回合数字只做校验/恢复
 let stepTracker: D6StepTracker | null = null;
+// 同一次开局内重复命中「开启」只写一条分析日志
+let startRepeatIgnored = false;
 // 回合数字读取缓存：同一地图行允许 300~500ms 后重读，避免换行动画/奖励弹窗期间一次 miss 就放弃
 let stepCounterRead: {
 	rowKey: string;
@@ -116,6 +119,16 @@ function d6StepRowKey(state: D6MapState): string {
 	const nodes = state.reachable.map(n => `${n.type}${Math.round(n.x / 8) * 8}`).join('/');
 	const pin = state.pin ? `${Math.round(state.pin.x / 8) * 8},${Math.round(state.pin.y / 8) * 8}` : '-';
 	return `${nodes || '-'}|${Math.round(state.nextRowY / 8) * 8}|${pin}`;
+}
+
+/**
+ * 本局是否已有实际步数进展。
+ * 只认已确认步数/岛屿序号，不认 pending：pending 只表示“点击已发出、等确认”，
+ * 用它判断会让开局过渡帧（还没进地图）和真正的新一局混在一起。
+ */
+function d6RunHasProgress(): boolean {
+	if (!stepTracker) return false;
+	return stepTracker.consumed > 0 || stepTracker.islandSeq > 0;
 }
 // TODO(六道觉): 后续恢复“只有脚本点击开启才执行六道觉操作”的限制，改回 true
 const REQUIRE_SCRIPT_START = false;
@@ -181,25 +194,32 @@ const D6_SHOP_REFRESH_COST = 100;
 const D6_SHOP_REFRESH_MAX = 3;
 const D6_BUFF_REFRESH_COST = 50;
 // buff 三张卡的图标区（开发坐标 1280x720）：入场/刷新动画期间会整体变化。
-// 刷新后轮询这里的外接矩形哈希，连续稳定后才允许扫描/选卡。
+// refresh 前后读这个区域的哈希，用于确认旧卡确实换成了新一组。
 const D6_BUFF_CARDS_DEV_REGION = { x0: 60, y0: 140, x1: 900, y1: 260 } as const;
+// 未知卡调试截图区域：图标+卡名，不截整屏，保存更快、文件更小
+const D6_BUFF_SHOT_DEV_REGION = { x0: 60, y0: 140, x1: 900, y1: 360 } as const;
 // 入场/刷新最小等待（视频实测入场卡面约 0.5~0.8s 已可读，刷新新卡约 2.2~2.6s 才落）
-const D6_BUFF_ENTER_MIN_MS = 900;
+// 入场没有上一组卡可读错，700ms 已覆盖多数设备；慢设备若出现点不中再调回 900ms。
+const D6_BUFF_ENTER_MIN_MS = 700;
 const D6_BUFF_REFRESH_MIN_MS = 2200;
 // 固定落位等待：卡面有持续闪光/粒子，轮询“连续相同 hash”在实机上几乎必定超时，
 // 旧实现每次 enter/refresh 都要跑满 4.5s，刷新后还会再补一次 enter，单次刷新约 9s。
-// 改为按实测动画时长固定等待，等待后只读一次 hash 做日志，不再用 hash 阻塞。
-const D6_BUFF_ENTER_SETTLE_MS = 900;
+// 改为按实测动画时长固定等待。只有 refresh 额外读一次 hash 用于确认换卡；
+// enter 不读 hash、不额外 keepScreen，选卡前会统一刷新缓存帧。
+const D6_BUFF_ENTER_SETTLE_MS = 700;
 const D6_BUFF_REFRESH_SETTLE_MS = 2700;
 // 超过这个间隔再次命中 buff 界面，视为新界面（正常一次刷新约 2.7~3.5s）
 const D6_BUFF_SCREEN_GAP_MS = 8000;
 // 选卡后的点击锁：覆盖选卡/换卡动画，防止同一屏被重复点击。
 // 普通界面选完会消失，锁会由“选择界面消失”立即解除；只有混沌精英换第二组卡时
-// 界面一直存在，才会等满这个时间。原 2500ms 是保守估计（实测第二组卡约 1.2~1.5s
-// 就落位），降到 2000ms 仍保留 0.5s 余量；若日志出现重复选卡/读到旧卡再调回。
-const D6_BUFF_SELECT_LOCK_MS = 2000;
+// 界面一直存在，才会等满这个时间。实测第二组卡约 1.2~1.5s 落位；
+// 锁从“真实点击时刻”开始计时（不再等 regionClick 的 500ms 点击后 sleep），
+// 1800ms 仍留 0.3s 余量；若日志出现重复选卡/读到旧卡再调回 2000ms。
+const D6_BUFF_SELECT_LOCK_MS = 1800;
+// 舞技强化选择界面的点击锁仍用 2000ms（它的点击在 oper 内部，锁起点无法提前）
+const D6_SKILL_SELECT_LOCK_MS = 2000;
 // 选卡后多久内再次命中 buff 界面，仍视为同一个界面的第二组卡（混沌精英）。
-// 选卡锁 2s + 轮询间隔留余量；普通战斗的下一组 buff 界面间隔远大于 8s。
+// 选卡锁 1.8s + 轮询间隔留余量；普通战斗的下一组 buff 界面间隔远大于 8s。
 const D6_BUFF_CONTINUATION_MS = 6000;
 // 每座岛 +50 只记一次：战斗岛在进入战斗/挑战时，商店在退出时，其他事件在完成时。
 // 挑战的 50 就是这个，不再额外加；商店入口 OCR 证明此时尚未到账。
@@ -433,6 +453,11 @@ export class Func323 implements IFuncOrigin {
 			desc: '万相铃按每岛固定收益计算，商店/选buff时OCR校验并校准；关闭OCR后只靠计算，可能累积误差',
 			type: 'switch',
 			default: true,
+		}, {
+			name: 'buffShot',
+			desc: '未知buff卡截图（调试/补取色用；默认关闭，开启后每次选未知卡会多花约0.2s）',
+			type: 'switch',
+			default: false,
 		}, {
 			name: 'buffBlacklist',
 			desc: 'buff黑名单（逗号分隔，默认：六道·混沌,六道·偶戏,妖力化身,攻击加成,背水一战；其中妖力化身/攻击加成/背水一战始终强制加入；名称需在 multiFindColors.ts 配置 六道觉_buff_<名称> 多点找色）',
@@ -1055,11 +1080,13 @@ export class Func323 implements IFuncOrigin {
 		// 选择 buff/舞技后锁住，直到选择界面消失。
 		// 混沌精英第二轮选 buff 时选择界面不会消失，而是直接换成下一组卡；
 		// 原来固定 8s 会把第二轮硬拖到 8s 后才处理（实测两次 buff.pick 间隔 9.1~9.5s）。
-		// 现在普通界面靠“界面消失”立即解锁，只有精英换卡会等满 D6_BUFF_SELECT_LOCK_MS。
+		// 现在普通界面靠“界面消失”立即解锁；buff 选卡锁从真实点击时刻开始计 1.8s，
+		// 舞技强化选择由调用方传 2s（它的点击在 oper 内部，锁只能后置）。
 		const buffSelectLocked = () => buffSelectLockActive && now() < buffSelectLockUntil;
-		const lockBuffSelect = () => {
+		const lockBuffSelect = (ms = D6_BUFF_SELECT_LOCK_MS) => {
 			buffSelectLockActive = true;
-			buffSelectLockUntil = now() + D6_BUFF_SELECT_LOCK_MS;
+			buffSelectLockMs = ms;
+			buffSelectLockUntil = now() + ms;
 		};
 
 		// 选择锁：buff/舞技界面已经切走就解除，超时兜底，避免卡死
@@ -1074,10 +1101,11 @@ export class Func323 implements IFuncOrigin {
 				// 锁到期时选择界面还在：多发生在混沌精英第二轮直接换卡，
 				// 记录一次便于确认这次延迟是否由选择锁造成。
 				if (stillSelecting) {
-					d6jueAnalysisLog('buff.lock_timeout', { ms: D6_BUFF_SELECT_LOCK_MS });
+					d6jueAnalysisLog('buff.lock_timeout', { ms: buffSelectLockMs || D6_BUFF_SELECT_LOCK_MS });
 				}
 				buffSelectLockActive = false;
 				buffSelectLockUntil = 0;
+				buffSelectLockMs = 0;
 			}
 		}
 		// 选择动画期间不再执行任何点击（包括舞技强化的选择按钮），等界面切走
@@ -1303,7 +1331,8 @@ export class Func323 implements IFuncOrigin {
 		 * - refresh 约 2.7s，覆盖旧卡变暗 + 新卡落位（实测 2.2~2.6s）。
 		 * duringWait 用于把钱包 OCR 并行到卡面动画里；等待总时长仍按 settleMs
 		 * 计算（OCR 花掉的时间从 sleep 里扣掉），不会读到旧卡。
-		 * 等待后只读一次 hash 用于日志/前后对比，不再用 hash 阻塞。
+		 * 只有 refresh 会读一次 hash 用于确认“确实换卡”；enter 不读 hash，
+		 * 避免为日志多付一次 keepScreen（调用方选卡前会统一刷新缓存帧）。
 		 */
 		const waitBuffCardsStable = (reason: string, minMs: number, prevHash = '', duringWait?: () => void): boolean => {
 			const t0 = now();
@@ -1319,10 +1348,15 @@ export class Func323 implements IFuncOrigin {
 			}
 			const remain = settleMs - (now() - t0);
 			if (remain > 0) sleep(remain);
-			// 更新缓存帧后再读一次卡面 hash；只用于日志，不参与“是否继续等待”的判断。
-			thisScript.keepScreen();
-			const hash = readBuffCardsHash();
-			const changed = !!(prevHash && hash && hash !== prevHash);
+			// 只有 refresh 需要确认“旧卡真的换掉了”才读 hash；enter 读 hash 只写日志，
+			// 还会多一次 keepScreen，直接跳过。调用方选卡前会统一 keepScreen。
+			let hash = '';
+			let changed = false;
+			if (prevHash) {
+				thisScript.keepScreen();
+				hash = readBuffCardsHash();
+				changed = !!(hash && hash !== prevHash);
+			}
 			const waited = now() - t0;
 			perfLog('buff.wait', waited, `reason=${reason} changed=${changed ? 1 : 0} timeout=0 refresh=${d6BuffRefreshCount}`, true);
 			d6jueAnalysisLog('buff.wait', {
@@ -1337,7 +1371,7 @@ export class Func323 implements IFuncOrigin {
 				wallet: g.d6jueWanxiangling || 0,
 				step: g.d6jueStepLeft || 0,
 			});
-			console.log(`[d6jue-buff] 卡面等待(${reason}) ${waited}ms changed=${changed ? 'T' : 'F'} timeout=F hash=${hash || '?'}`);
+			console.log(`[d6jue-buff] 卡面等待(${reason}) ${waited}ms changed=${changed ? 'T' : 'F'} timeout=F hash=${hash || (prevHash ? '?' : '-')}`);
 			return true;
 		};
 		// 舞技强化/buff 界面右下角刷新：OCR 可用时等下一次读数校验费用
@@ -1471,33 +1505,71 @@ export class Func323 implements IFuncOrigin {
 			}
 			const button = buffButtons[index];
 			if (!button) return false;
-			// TODO(六道觉): 未知卡截图仅用于补取色，黑名单识别稳定后移除
-			if (!name && thisConf.walletOcr !== false) {
+			// 未知卡截图只用于补取色，默认关闭（buffShot）。开启时也先截/裁好图，
+			// 点击后再保存：captureScreen/images.save 实测约 260ms，不能挡在点击前。
+			let shotImg: any = null;
+			let shotPath = '';
+			let shotCropped = false;
+			if (!name && thisConf.buffShot === true) {
 				try {
 					const dir = context.getExternalFilesDir(null);
 					if (dir) {
 						const img = images.captureScreen();
 						if (img) {
-							const shot = `${dir.getAbsolutePath()}/d6jue_buff_${g.d6jueTimes || 0}_${g.d6jueStepLeft || 0}_${now()}.png`;
-							images.save(img, shot);
-							img.recycle();
-							console.log(`[d6jue-buff] 未知卡截图: ${shot}`);
-							d6jueAnalysisLog('buff.screenshot', {
-								path: shot,
-								step: g.d6jueStepLeft || 0,
-								pos: index + 1,
-								lei: g.d6jueLeiLevel || 0,
-								power: g.d6juePowerLevel || 0,
-							});
+							const helper = thisScript.helperBridge.helper;
+							const sr = helper.GetPoint(D6_BUFF_SHOT_DEV_REGION.x0, D6_BUFF_SHOT_DEV_REGION.y0, left);
+							const er = helper.GetPoint(D6_BUFF_SHOT_DEV_REGION.x1, D6_BUFF_SHOT_DEV_REGION.y1, left);
+							const w = er.x - sr.x;
+							const h = er.y - sr.y;
+							let clipped: any = null;
+							if (typeof images.clip === 'function' && w > 0 && h > 0) {
+								clipped = images.clip(img, sr.x, sr.y, w, h);
+							}
+							if (clipped) {
+								img.recycle();
+								shotImg = clipped;
+								shotCropped = true;
+							} else {
+								shotImg = img;
+							}
+							shotPath = `${dir.getAbsolutePath()}/d6jue_buff_${g.d6jueTimes || 0}_${g.d6jueStepLeft || 0}_${now()}.png`;
 						}
 					}
 				} catch (e) {
 					// 截图失败不影响选卡
+					shotImg = null;
+					shotPath = '';
+					shotCropped = false;
 				}
 			}
-			thisScript.regionClick([[button[0], button[1], button[2], button[3], 500]]);
+			// 锁从真实点击时刻开始计，不能等 regionClick 内部的 500ms 点击后 sleep 结束
 			d6BuffLastPickTime = now();
 			lockBuffSelect();
+			thisScript.regionClick([[button[0], button[1], button[2], button[3], 500]]);
+			// 截图放到点击后保存，不占选卡前的时间
+			if (shotImg) {
+				try {
+					images.save(shotImg, shotPath);
+					console.log(`[d6jue-buff] 未知卡截图: ${shotPath}`);
+					d6jueAnalysisLog('buff.screenshot', {
+						path: shotPath,
+						step: g.d6jueStepLeft || 0,
+						pos: index + 1,
+						lei: g.d6jueLeiLevel || 0,
+						power: g.d6juePowerLevel || 0,
+						crop: shotCropped ? 1 : 0,
+					});
+				} catch (e) {
+					// 截图失败不影响选卡
+				} finally {
+					try {
+						shotImg.recycle();
+					} catch (e) {
+						// 忽略回收异常
+					}
+					shotImg = null;
+				}
+			}
 			// 选卡后界面会关闭或换下一组卡（混沌精英第二轮），下次命中按新界面重新等入场
 			resetBuffScreenState();
 			// 每个选buff界面 +100；同一屏的重复点击由选择锁挡住
@@ -1545,9 +1617,10 @@ export class Func323 implements IFuncOrigin {
 			if (buffSelectLocked()) return true;
 			const button = buffButtons[index];
 			if (!button) return false;
-			thisScript.regionClick([[button[0], button[1], button[2], button[3], 500]]);
+			// 锁从真实点击时刻开始计，不能等 regionClick 内部的 500ms 点击后 sleep 结束
 			d6BuffLastPickTime = now();
 			lockBuffSelect();
+			thisScript.regionClick([[button[0], button[1], button[2], button[3], 500]]);
 			resetBuffScreenState();
 			addWanxiangling(D6_ISLAND_BUFF_GAIN, `死局选buff:${name || '未知'}`);
 			g.d6jueCantClear = true;
@@ -2496,6 +2569,21 @@ export class Func323 implements IFuncOrigin {
 
 		// 只有脚本点击「开启-六道觉」后才允许执行本局操作
 		const startRun = () => {
+			// 从点「开启」到本局出现第一个步数进展之间，都属于同一次开局：
+			// 过渡帧/点击重试再次命中「开启」时只点击、不重复统计。
+			// run.end 会把 d6jueStarted 置 false；已有进展时也允许重置，
+			// 兼容漏掉结算后直接重新开局的场景。
+			if (g.d6jueStarted && !d6RunHasProgress()) {
+				if (!startRepeatIgnored) {
+					startRepeatIgnored = true;
+					d6jueAnalysisLog('start.repeat_ignore', {
+						times: g.d6jueTimes || 0,
+						step: g.d6jueStepLeft || 0,
+					});
+				}
+				return;
+			}
+			startRepeatIgnored = false;
 			g.d6jueStarted = true;
 			g.d6jueStartPrompted = false;
 			unknownMapNotified = false;
@@ -2541,6 +2629,7 @@ export class Func323 implements IFuncOrigin {
 			g.d6jueHuanxiShop = 0;
 			buffSelectLockActive = false;
 			buffSelectLockUntil = 0;
+			buffSelectLockMs = 0;
 			resetBuffScreenState();
 			g.d6jueLastMapSig = '';
 			g.d6jueLastMapSigTime = 0;
@@ -2613,6 +2702,7 @@ export class Func323 implements IFuncOrigin {
 		if (oper([32], '六道觉_开启-上阵式神', 500)) return true;
 
 		// ---- 兼容已开启状态下再次点到「开启」：重置本局统计 ----
+		// 是否重置由 startRun 判断：开局后到第一个步数进展之间重复命中只算一次。
 		if (oper([3], '六道觉_开启-六道觉')) {
 			startRun();
 			return true;
@@ -3113,7 +3203,7 @@ export class Func323 implements IFuncOrigin {
 			const powerBefore = g.d6juePowerLevel || 0;
 			g.d6juePowerLevel = powerBefore + 1;
 			d6BuffLastPickTime = now();
-			lockBuffSelect();
+			lockBuffSelect(D6_SKILL_SELECT_LOCK_MS);
 			resetBuffScreenState();
 			addWanxiangling(D6_ISLAND_BUFF_GAIN, '舞技强化选择');
 			d6jueAnalysisLog('skill.pick', {
@@ -3136,15 +3226,17 @@ export class Func323 implements IFuncOrigin {
 			const isNewBuffScreen = buffScreenGap > D6_BUFF_SCREEN_GAP_MS;
 			if (isNewBuffScreen) resetBuffScreenState();
 			d6BuffScreenLastSeen = now();
+			let isBuffContinuation = false;
 			if (!d6BuffScreenSettled) {
 				if (isNewBuffScreen) {
 					d6BuffRefreshCount = 0;
 					d6BuffLastRefreshTime = 0;
 				}
 				// 混沌精英第二组卡：buff 界面没有退场，只是换了一组卡；选卡锁已经
-				// 覆盖换卡动画，再等 0.9s 入场是纯空等。普通新界面仍按原逻辑等入场。
+				// 覆盖换卡动画，再等 0.7s 入场是纯空等。普通新界面仍按原逻辑等入场。
 				const continuation = d6BuffLastPickTime > 0
 					&& now() - d6BuffLastPickTime <= D6_BUFF_CONTINUATION_MS;
+				isBuffContinuation = continuation;
 				if (continuation) {
 					d6jueAnalysisLog('buff.continuation', {
 						gap: now() - d6BuffLastPickTime,
@@ -3162,7 +3254,9 @@ export class Func323 implements IFuncOrigin {
 				d6BuffScreenSettled = true;
 				thisScript.keepScreen(); // 让下面的 selectLei 用稳定后的卡面帧
 			}
-			readWanxianglingOcr('buff');
+			// 混沌精英第二组：第一张卡的钱包还没结算，选卡前 OCR 既慢（约300ms），
+			// 又会把 internal wallet sync 回旧值；这一轮跳过，下一次入场/刷新再校准。
+			if (!isBuffContinuation) readWanxianglingOcr('buff');
 			const powerLevel = g.d6juePowerLevel || 0;
 			const leiLevel = g.d6jueLeiLevel || 0;
 			const powerSelectable = powerLevel < 10;
