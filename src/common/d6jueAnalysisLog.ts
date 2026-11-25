@@ -12,8 +12,22 @@
 
 import { D6_LOGIC_VERSION } from './d6jueVersion';
 
+const D6_ANALYSIS_ROTATE_BYTES = 5 * 1024 * 1024;
+
 let sessionStarted = false;
 let currentRun = 0;
+
+function rotateIfNeeded(path: string): void {
+	try {
+		const f = new java.io.File(path);
+		if (!f.exists() || f.length() < D6_ANALYSIS_ROTATE_BYTES) return;
+		const backup = new java.io.File(path + '.1');
+		if (backup.exists()) backup.delete();
+		f.renameTo(backup);
+	} catch (e) {
+		// 轮转失败不影响继续追加
+	}
+}
 
 export function d6jueAnalysisSetRun(run: number): void {
 	currentRun = run || 0;
@@ -35,6 +49,7 @@ export function d6jueAnalysisLog(event: string, data?: { [key: string]: string |
 		if (!path) return;
 		if (!sessionStarted) {
 			sessionStarted = true;
+			rotateIfNeeded(path);
 			files.append(path, `=== d6jue analysis session ${new Date().toISOString()} ver=${D6_LOGIC_VERSION} ===\n`);
 		}
 		const parts: string[] = [];

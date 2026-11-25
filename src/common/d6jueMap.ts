@@ -870,20 +870,47 @@ function detectNodes(img: DevImage): D6MapNode[] {
 			}
 		}
 		if (best.score < 0.90) {
-			const refineCount = Math.min(2, coarseRanked.length);
-			for (let r = 0; r < refineCount; r++) {
-				const tpl = coarseRanked[r].template;
-				const skipFastBox = r === 0;
-				for (let dy = -3; dy <= 3; dy++) {
-					for (let dx = -3; dx <= 3; dx++) {
-						if (skipFastBox && dy >= fMinDy && dy <= fMaxDy && dx >= fMinDx && dx <= fMaxDx) continue;
-						const score = nccScorePatch(patch, tpl, c.cx + dx, c.cy + dy);
+			// 先在第二名模板的最佳粗搜点周围 ±1（最多 9 点）做快速精搜：
+			// 混沌/宁息常落在 0.80~0.89，这样只需 9+9=18 次 NCC，避免动辄 98 次全量 ±3 精搜。
+			let sMinDy = 0;
+			let sMaxDy = -1;
+			let sMinDx = 0;
+			let sMaxDx = -1;
+			if (coarseRanked.length > 1) {
+				const top1 = coarseRanked[1];
+				sMinDy = Math.max(-3, top1.oy - 1);
+				sMaxDy = Math.min(3, top1.oy + 1);
+				sMinDx = Math.max(-3, top1.ox - 1);
+				sMaxDx = Math.min(3, top1.ox + 1);
+				for (let dy = sMinDy; dy <= sMaxDy; dy++) {
+					for (let dx = sMinDx; dx <= sMaxDx; dx++) {
+						const score = nccScorePatch(patch, top1.template, c.cx + dx, c.cy + dy);
 						if (score > best.score) {
-							best = { score, template: tpl, x: c.cx + dx, y: c.cy + dy };
+							best = { score, template: top1.template, x: c.cx + dx, y: c.cy + dy };
 						}
 					}
 				}
-				if (best.score >= 0.90) break;
+			}
+			// 仅当分数仍偏低（<0.78，接近未知/边界样本）时才补跑 top-2 其余 ±3 偏移兜底
+			if (best.score < 0.78) {
+				const refineCount = Math.min(2, coarseRanked.length);
+				for (let r = 0; r < refineCount; r++) {
+					const tpl = coarseRanked[r].template;
+					const skipMinDy = r === 0 ? fMinDy : sMinDy;
+					const skipMaxDy = r === 0 ? fMaxDy : sMaxDy;
+					const skipMinDx = r === 0 ? fMinDx : sMinDx;
+					const skipMaxDx = r === 0 ? fMaxDx : sMaxDx;
+					for (let dy = -3; dy <= 3; dy++) {
+						for (let dx = -3; dx <= 3; dx++) {
+							if (dy >= skipMinDy && dy <= skipMaxDy && dx >= skipMinDx && dx <= skipMaxDx) continue;
+							const score = nccScorePatch(patch, tpl, c.cx + dx, c.cy + dy);
+							if (score > best.score) {
+								best = { score, template: tpl, x: c.cx + dx, y: c.cy + dy };
+							}
+						}
+					}
+					if (best.score >= 0.90) break;
+				}
 			}
 		}
 		let type: D6MapNodeType = best.score >= TYPE_MIN_SCORE ? best.template.type : 'unknown';

@@ -42,7 +42,7 @@ let d6BuffScreenLastSeen = 0;
 // 最近一次选 buff 的时间：混沌精英第二组卡会沿用同一个 buff 界面（只换卡不换屏），
 // 命中时据此跳过入场等待；普通战斗的下一组 buff 界面间隔远大于 8s，不会误判。
 let d6BuffLastPickTime = 0;
-// 六道觉每座岛的进岛 +50 只记一次；buff +100 按选buff界面计（混沌精英可两次）。
+// 六道觉每座岛的进岛 +50、选 buff +100 各只记一次（混沌精英第 2/2 轮先回退第 1 轮预加）。
 // 岛屿 key 在点击主地图节点时更新，重试同一节点不会重置。
 let d6IslandKey = '';
 let d6IslandGainDone = false;
@@ -70,6 +70,12 @@ let d6OpeningMapIntroPending = false;
 // 商店点击购买轰雷的最近一次点击区域与补点标记：首点未弹出确认框且轰雷仍在时补点 1 次，避免超时弃买。
 let d6ShopBuyLastOper: number[][] | null = null;
 let d6ShopBuyRetried = false;
+// 当前岛屿是否已计入一次选 buff +100（混沌精英第 2/2 轮触发 buff.continuation 时先回退第 1 轮预加，整岛只计一次）
+let d6IslandBuffGainDone = false;
+// 进入「舞技强化」前记录的 buff 卡面采样，供混沌精英第 1 轮选强化后复用提前解锁
+let d6PreSkillBuffSample: D6RegionSample | null = null;
+// 记录最近一次主动唤息对应的岛屿序号，防止同一行异常重复唤息
+let d6HuanxiUsedSeq = -1;
 // 按小地图画面哈希缓存识别结果，避免对像素未变化的同一帧重复跑 NCC
 let mapStateCache: { hash: string; state: D6MapState | null } | null = null;
 // 最近一次成功读取的小地图画面哈希：给步数状态机判断“点击后是否发生转场/动画”
@@ -229,6 +235,7 @@ const D6_STEP_MAP_OPERATORS: { [key: number]: boolean } = {
 	29: true,
 	37: true,
 	44: true,
+	54: true,
 };
 const D6_HUANXI_COST = 300;
 // 唤息点击后，新地图行签名要连续稳定这么久才确认扣款：
@@ -620,7 +627,7 @@ export class Func323 implements IFuncOrigin {
 			]
 		],
 		oper: [
-			[center, 1280, 720, 10, 20, 50, 65, 500], // 关闭/返回
+			[center, 1280, 720, 10, 20, 50, 65, 350], // 关闭/返回
 		],
 	}, { // 18 六道觉 -> 宝箱
 		// TODO(六道觉): 取色
@@ -702,7 +709,7 @@ export class Func323 implements IFuncOrigin {
 			]
 		],
 		oper: [
-			[center, 1280, 720, 394, 617, 903, 699, 1000], // 结算-继续
+			[center, 1280, 720, 394, 617, 903, 699, 500], // 结算-继续
 		],
 	}, { // 29 六道觉 -> 双倍次数为0
 		// TODO(六道觉): 取色（开始界面的双倍次数标识）
@@ -863,7 +870,7 @@ export class Func323 implements IFuncOrigin {
 			]
 		],
 		oper: [
-			[center, 1280, 720, 10, 20, 50, 65, 500], // 关闭/返回
+			[center, 1280, 720, 10, 20, 50, 65, 350], // 关闭/返回
 		],
 	}, { // 44 六道觉 -> 唤息_亮/金
 		// 已取色：右下角亮色唤息
@@ -994,6 +1001,12 @@ export class Func323 implements IFuncOrigin {
 			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[8], 500], // four-3
 			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[9], 500], // four-4
 		],
+	}, { // 54 六道觉 -> 唤息_确认框（仅在 d6HuanxiPending 期间主动确认，减少依赖外部 func 2 并压缩等待）
+		desc: '退出结算_取消确认框',
+		oper: [
+			[center, 1280, 720, 680, 411, 838, 452, 200],
+		],
+		notForCnt: true,
 	}];
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
 		// Rhino 首次调用 analyzeD6Map 才编译其中的热点循环，导致进图后第一次识别明显变慢。
@@ -1180,10 +1193,22 @@ export class Func323 implements IFuncOrigin {
 		// 选择锁：buff/舞技界面已经切走就解除；混沌精英确认换卡稳定可提前解除；超时兜底，避免卡死
 		if (buffSelectLockActive) {
 			const selectOps = [39, 41, 49].map(index => thisOperator[index]).filter(isReady);
+			const buffCardOps = [39, 49].map(index => thisOperator[index]).filter(isReady);
+			const skillModalOps = [41].map(index => thisOperator[index]).filter(isReady);
 			const checkStillSelecting = () => selectOps.length > 0 && thisScript.desc({
 				id: 323,
 				name: '六道觉_选择界面锁检测',
 				operator: selectOps,
+			}, thisScript.scheme.commonConfig);
+			const checkBuffCardsVisible = () => buffCardOps.length > 0 && thisScript.desc({
+				id: 323,
+				name: '六道觉_卡面界面锁检测',
+				operator: buffCardOps,
+			}, thisScript.scheme.commonConfig);
+			const checkSkillModalVisible = () => skillModalOps.length > 0 && thisScript.desc({
+				id: 323,
+				name: '六道觉_舞技弹窗锁检测',
+				operator: skillModalOps,
 			}, thisScript.scheme.commonConfig);
 			const stillSelecting = checkStillSelecting();
 			if (!stillSelecting || now() >= buffSelectLockUntil) {
@@ -1192,7 +1217,12 @@ export class Func323 implements IFuncOrigin {
 					d6jueAnalysisLog('buff.lock_timeout', { ms: buffSelectLockMs || D6_BUFF_SELECT_LOCK_MS });
 				}
 				clearBuffSelectLock();
-			} else if (buffSelectLockSample && now() - buffSelectLockStart >= D6_BUFF_SELECT_LOCK_MIN_MS) {
+			} else if (
+				buffSelectLockSample
+					&& now() - buffSelectLockStart >= D6_BUFF_SELECT_LOCK_MIN_MS
+					&& checkBuffCardsVisible()
+					&& !checkSkillModalVisible()
+			) {
 				const curSample = readBuffCardsSample();
 				const swap = isBuffCardsSwapped(buffSelectLockSample, curSample);
 				if (swap.swapped) {
@@ -1201,7 +1231,7 @@ export class Func323 implements IFuncOrigin {
 					thisScript.keepScreen();
 					if (!checkStillSelecting()) {
 						clearBuffSelectLock();
-					} else {
+					} else if (checkBuffCardsVisible() && !checkSkillModalVisible()) {
 						const nextSample = readBuffCardsSample();
 						const swap2 = isBuffCardsSwapped(buffSelectLockSample, nextSample);
 						if (swap2.swapped && isBuffCardsSettled(curSample, nextSample)) {
@@ -1220,7 +1250,7 @@ export class Func323 implements IFuncOrigin {
 		// 选择动画期间不再执行任何点击（包括舞技强化的选择按钮），等界面切走或换卡完成
 		if (buffSelectLocked()) return true;
 
-		// 万相铃计算：进岛 +50 每岛一次；选buff +100 按界面计。
+		// 万相铃计算：进岛 +50 每岛一次；选buff +100 每岛一次（混沌精英第 2/2 轮回退第 1 轮预加后再结算）。
 		const addWanxiangling = (amount: number, source: string) => {
 			g.d6jueWanxiangling = (g.d6jueWanxiangling || 0) + amount;
 			console.log(`[d6jue-wanxiangling] ${source}+${amount}，当前=${g.d6jueWanxiangling}`);
@@ -1234,11 +1264,13 @@ export class Func323 implements IFuncOrigin {
 				island: d6IslandKey,
 			});
 		};
-		// 岛屿上下文：每次点击主地图节点时换 key；同一节点的重试沿用同一 key。
+			// 岛屿上下文：每次点击主地图节点时换 key；同一节点的重试沿用同一 key。
 		const beginIsland = (key: string) => {
 			if (key === d6IslandKey) return;
 			d6IslandKey = key;
 			d6IslandGainDone = false;
+			d6IslandBuffGainDone = false;
+			d6PreSkillBuffSample = null;
 		};
 		const ensureIsland = () => {
 			if (!d6IslandKey) beginIsland(`mid:${g.d6jueStepLeft || 0}`);
@@ -1249,6 +1281,13 @@ export class Func323 implements IFuncOrigin {
 			if (d6IslandGainDone) return;
 			d6IslandGainDone = true;
 			addWanxiangling(D6_ISLAND_GAIN, source);
+		};
+		// 每座岛选 buff/舞技 +100 只计一次；混沌精英进入第 2/2 轮时先回退第 1 轮预加，待第 2 轮结算。
+		const addBuffGainOnce = (source: string) => {
+			ensureIsland();
+			if (d6IslandBuffGainDone) return;
+			d6IslandBuffGainDone = true;
+			addWanxiangling(D6_ISLAND_BUFF_GAIN, source);
 		};
 		// 刷新费用不盲目扣：OCR 可用时先挂起，等下一次 OCR 读数校验；
 		// OCR 关闭时没有校验手段，退回点击即扣。
@@ -1527,7 +1566,9 @@ export class Func323 implements IFuncOrigin {
 				refresh: d6BuffRefreshCount,
 				prevHash,
 			});
-			thisScript.regionClick([[1180, 625, 1235, 675, 0]]);
+			thisScript.regionClick(thisScript.helperBridge.regionClickTrans([
+				[right, 1280, 720, 1180, 625, 1235, 675, 0],
+			]));
 			// 点击后钱包很快扣费，OCR 放在换卡等待期间并行跑；调用方紧接着的
 			// readWanxianglingOcr('buff') 用 skipUntil 跳过，避免重复读。
 			waitBuffCardsStable('refresh', D6_BUFF_REFRESH_MIN_MS, prevSample, () => {
@@ -1572,7 +1613,9 @@ export class Func323 implements IFuncOrigin {
 			[420, 555, 600, 590],
 			[690, 555, 870, 590],
 		];
-		const cardIndexByX = (x: number): number => x < 350 ? 0 : x < 620 ? 1 : 2;
+		const buffCardSplit1 = thisScript.helperBridge.helper.GetPoint(350, 0, left).x;
+		const buffCardSplit2 = thisScript.helperBridge.helper.GetPoint(620, 0, left).x;
+		const cardIndexByX = (x: number): number => x < buffCardSplit1 ? 0 : x < buffCardSplit2 ? 1 : 2;
 
 		const isBuffSelectable = (name: string): boolean => {
 			if (buffBlacklist.includes(name)) return false;
@@ -1673,9 +1716,12 @@ export class Func323 implements IFuncOrigin {
 			// 锁从真实点击时刻开始计，不能等 regionClick 内部的 500ms 点击后 sleep 结束；
 			// 附带点击前卡面采样，便于混沌精英换出第二组卡后提前解锁。
 			const pickSample = readBuffCardsSample();
+			d6PreSkillBuffSample = null;
 			d6BuffLastPickTime = now();
 			lockBuffSelect(D6_BUFF_SELECT_LOCK_MS, pickSample);
-			thisScript.regionClick([[button[0], button[1], button[2], button[3], 500]]);
+			thisScript.regionClick(thisScript.helperBridge.regionClickTrans([
+				[left, 1280, 720, button[0], button[1], button[2], button[3], 500],
+			]));
 			// 截图放到点击后保存，不占选卡前的时间
 			if (shotImg) {
 				try {
@@ -1702,8 +1748,8 @@ export class Func323 implements IFuncOrigin {
 			}
 			// 选卡后界面会关闭或换下一组卡（混沌精英第二轮），下次命中按新界面重新等入场
 			resetBuffScreenState();
-			// 每个选buff界面 +100；同一屏的重复点击由选择锁挡住
-			addWanxiangling(D6_ISLAND_BUFF_GAIN, `选buff:${name || '未知'}`);
+			// 每座岛选 buff +100 只计一次；混沌精英第 2/2 轮会在 buff.continuation 先回退第 1 轮预加
+			addBuffGainOnce(`选buff:${name || '未知'}`);
 			if (name === '六道轰雷') {
 				g.d6jueLeiLevel = (g.d6jueLeiLevel || 0) + 1;
 			} else {
@@ -1749,11 +1795,14 @@ export class Func323 implements IFuncOrigin {
 			// 锁从真实点击时刻开始计，不能等 regionClick 内部的 500ms 点击后 sleep 结束；
 			// 附带点击前卡面采样，便于混沌精英换出第二组卡后提前解锁。
 			const pickSample = readBuffCardsSample();
+			d6PreSkillBuffSample = null;
 			d6BuffLastPickTime = now();
 			lockBuffSelect(D6_BUFF_SELECT_LOCK_MS, pickSample);
-			thisScript.regionClick([[button[0], button[1], button[2], button[3], 500]]);
+			thisScript.regionClick(thisScript.helperBridge.regionClickTrans([
+				[left, 1280, 720, button[0], button[1], button[2], button[3], 500],
+			]));
 			resetBuffScreenState();
-			addWanxiangling(D6_ISLAND_BUFF_GAIN, `死局选buff:${name || '未知'}`);
+			addBuffGainOnce(`死局选buff:${name || '未知'}`);
 			g.d6jueCantClear = true;
 			g.d6jueOtherBuffSelected = true;
 			console.log(`[d6jue-buff] 死局强制选择 ${name || '未知'}（位置=${index + 1}），标记无法通关=T`);
@@ -2122,12 +2171,21 @@ export class Func323 implements IFuncOrigin {
 				console.log('[d6jue-map] 唤息点击冷却中');
 				return false;
 			}
-			thisScript.regionClick([[1125, 585, 1210, 645, 500]]);
+			thisScript.regionClick(thisScript.helperBridge.regionClickTrans([
+				[right, 1280, 720, 1125, 585, 1210, 645, 250],
+			]));
 			g.d6jueMapClickTime = time;
 			const before = g.d6jueWanxiangling || 0;
 			d6HuanxiPending = true;
 			d6HuanxiPendingTime = now();
 			d6HuanxiPendingSig = mapSig;
+			d6HuanxiUsedSeq = getStepTracker().islandSeq;
+			// 点唤息后约 200~350ms 弹出确认框：本轮直接短轮询确认，省掉回主循环等 func 2 的 ~0.7s。
+			for (let confirmTry = 0; confirmTry < 4; confirmTry++) {
+				thisScript.keepScreen();
+				if (oper([54], '六道觉_唤息_确认')) break;
+				if (confirmTry < 3) sleep(100);
+			}
 			console.log(`[d6jue-map] ${reason}，唤息-${D6_HUANXI_COST}（等待地图刷新确认，当前=${before}）`);
 			d6jueAnalysisLog('map.huanxi', {
 				reason,
@@ -2215,6 +2273,23 @@ export class Func323 implements IFuncOrigin {
 					if (thisConf.logMapNodes) console.log('[d6jue-map] 未识别到小地图节点，跳过');
 					return false;
 				}
+				// 游戏规则：孔雀国「绽放」只在第 5/10/15 关以单节点行出现，绝不会与其它节点同行。
+				// 历史日志中多节点行的「绽放」（如 混沌/绽放）全部是把「宁息」误认所致，还会触发错误的 bloom_fix 步数跳变。
+				if (state.reachable.length >= 2) {
+					let remapped = false;
+					for (let ri = 0; ri < state.reachable.length; ri++) {
+						if (state.reachable[ri].type === '绽放') {
+							state.reachable[ri].type = '宁息';
+							remapped = true;
+						}
+					}
+					if (remapped) {
+						d6jueAnalysisLog('map.bloom_remap', {
+							step: g.d6jueStepLeft || 0,
+							nodes: state.reachable.map(n => n.type).join('/'),
+						});
+					}
+				}
 				// 唤息确认：新行签名要连续稳定才扣款。只看单帧变化会在换图动画的
 				// 中间帧提前确认，导致一次唤息扣两次；具体判定放在 rowValid 计算之后。
 				huanxiSig = huanxiSigOf(state);
@@ -2224,14 +2299,14 @@ export class Func323 implements IFuncOrigin {
 				const afterRead = now();
 				const unknownNodes = state.nodes.filter(n => n.type === 'unknown');
 				const typeConflict = state.reachable.some(n => n.type === '神秘')
-						&& state.reachable.some(n => n.type === '绽放');
+							&& state.reachable.some(n => n.type === '绽放');
 				const rowValid = !typeConflict
-						&& unknownNodes.length === 0
-						&& state.reachable.length >= 1
-						&& state.reachable.length <= 4;
-					// 唤息确认：新行必须是有效行（无 unknown/冲突、1~4 个可达节点），
-					// 且签名连续稳定 D6_HUANXI_CONFIRM_STABLE_MS 才扣款。
-					// 过渡帧/识别不完整的帧不推进候选，避免换图动画中间帧被当成新行。
+							&& unknownNodes.length === 0
+							&& state.reachable.length >= 1
+							&& state.reachable.length <= 4;
+				// 唤息确认：新行必须是有效行（无 unknown/冲突、1~4 个可达节点），
+				// 且签名连续稳定 D6_HUANXI_CONFIRM_STABLE_MS 才扣款。
+				// 过渡帧/识别不完整的帧不推进候选，避免换图动画中间帧被当成新行。
 				if (d6HuanxiPending) {
 					if (huanxiSig === d6HuanxiPendingSig) {
 						// 还是点击前那一行：中间帧回跳/点击未生效，候选作废
@@ -2248,7 +2323,7 @@ export class Func323 implements IFuncOrigin {
 					}
 				}
 				rowKey = d6StepRowKey(state);
-				const bloom = state.reachable.some(n => n.type === '绽放');
+				const bloom = state.reachable.length === 1 && state.reachable[0].type === '绽放';
 				// boss 已把 left 置 0 后又出现完整地图：要么 boss 失败回到地图，要么新一局
 				// 没有经过“开启”按钮。重新按未初始化状态接管，由计数器决定真实剩余步数。
 				if (rowValid && getStepTracker().left <= 0 && getStepTracker().phase === 'map') {
@@ -2346,6 +2421,10 @@ export class Func323 implements IFuncOrigin {
 				}
 
 				if (unknownNodes.length > 0) {
+					// 主动唤息换图动画过渡帧常出现短暂 unknown，期间静默跳过等待下一帧，不弹 toast/写告警。
+					if (d6HuanxiPending) {
+						return false;
+					}
 					if (!unknownMapNotified) {
 						const nodeText = state.nodes.map(n => `${d6MapColName(n.col)}${n.type}(ncc${n.score.toFixed(2)}${n.shapeScore ? `/形${n.shapeScore.toFixed(2)}` : ''},亮${n.meanLum.toFixed(0)},金${n.gold})`).join(' | ');
 						const pinText = state.pin ? `${state.pin.x},${state.pin.y}` : '未识别';
@@ -2496,10 +2575,23 @@ export class Func323 implements IFuncOrigin {
 			}
 
 			// 唤息规则：
-			// 1. 轰雷已满足后，下一层仅 1 个可达节点且为混沌：能唤息就唤息；
-			// 2. 只剩轰雷且临近迎战、当前行没有宁息：主动唤息找宁息商店（每局最多 1 次）。
+			// 1. 通关条件已满足（力量>=3 且 轰雷>=1）时，当前行全是战斗节点（鏖战/混沌）且节点数<4：
+			//    用富余万相铃主动唤息追加宁息商店秒退（唤息+宁息秒退 ~6.5s，显著快于打鏖战 ~11s / 混沌精英 ~12~23s）；
+			//    同一岛屿序号最多唤息一次，防止异常重复唤息。
+			// 2. 尚未凑齐力量但轰雷已满足时，单节点混沌依然唤息避开高风险精英；
+			// 3. 只剩轰雷且临近迎战、当前行没有宁息：主动唤息找宁息商店（每局最多 1 次）。
+			const currentSeq = getStepTracker().islandSeq;
+			const canHuanxiThisRow = huanxiBright
+				&& state.reachable.length >= 1
+				&& state.reachable.length < 4
+				&& wallet >= D6_HUANXI_COST
+				&& d6HuanxiUsedSeq !== currentSeq;
+			const allCombatRow = state.reachable.every(n => n.type === '鏖战' || n.type === '混沌');
 			const singleChaos = state.reachable.length === 1 && state.reachable[0].type === '混沌';
-			if (singleChaos && huanxiBright && leiLevel > 0 && wallet >= D6_HUANXI_COST) {
+			if (canHuanxiThisRow && clearMet && allCombatRow) {
+				return clickHuanxi('通关已满足，全战斗行唤息换宁息', time, huanxiSig);
+			}
+			if (canHuanxiThisRow && !clearMet && singleChaos && leiLevel > 0) {
 				return clickHuanxi('轰雷已满足，下一层仅混沌单节点', time, huanxiSig);
 			}
 
@@ -2742,9 +2834,10 @@ export class Func323 implements IFuncOrigin {
 			return false;
 		};
 
-		// 唤息确认期间优先轮询地图：跳过前面的界面识别链，少绕 0.3~0.7s，
+		// 唤息确认期间优先处理确认弹窗与地图轮询：跳过前面的界面识别链，少绕 0.3~0.7s，
 		// 让新行更早被看到、扣款确认更早完成。正常地图流程不受影响。
 		if (d6HuanxiPending) {
+			if (oper([54], '六道觉_唤息_确认')) return true;
 			const pendingDark = oper([37], '六道觉_唤息_暗');
 			const pendingBright = !pendingDark && oper([44], '六道觉_唤息_亮');
 			if (pendingDark || pendingBright) {
@@ -2798,6 +2891,9 @@ export class Func323 implements IFuncOrigin {
 			lastWalletOcrTime = 0;
 			d6IslandKey = '';
 			d6IslandGainDone = false;
+			d6IslandBuffGainDone = false;
+			d6PreSkillBuffSample = null;
+			d6HuanxiUsedSeq = -1;
 			d6PendingRefreshCost = 0;
 			d6PendingRefreshSource = '';
 			d6PendingRefreshWalletBefore = 0;
@@ -3232,7 +3328,9 @@ export class Func323 implements IFuncOrigin {
 				// 刷新后仍要保留 200 买轰雷：商店刷新 100/次
 				const canKeepLeiPrice = wanxiangling - D6_SHOP_REFRESH_COST >= D6_SHOP_LEI_PRICE;
 				if (refreshAvailable && canKeepLeiPrice && (g.d6jueShopRefresh || 0) < D6_SHOP_REFRESH_MAX) {
-					thisScript.regionClick([[595, 600, 640, 645, 1500]]);
+					thisScript.regionClick(thisScript.helperBridge.regionClickTrans([
+						[center, 1280, 720, 595, 600, 640, 645, 1500],
+					]));
 					g.d6jueShopRefresh = (g.d6jueShopRefresh || 0) + 1;
 					// 刷新费等下一次 OCR 校验；OCR 关闭时才直接扣
 					beginPendingRefreshCost(D6_SHOP_REFRESH_COST, 'shop_refresh', wanxiangling);
@@ -3445,9 +3543,11 @@ export class Func323 implements IFuncOrigin {
 			const powerBefore = g.d6juePowerLevel || 0;
 			g.d6juePowerLevel = powerBefore + 1;
 			d6BuffLastPickTime = now();
-			lockBuffSelect(D6_SKILL_SELECT_LOCK_MS);
+			// 复用进入舞技强化前采样的 buff 卡面，供混沌精英第 1 轮选完强化切回第 2 轮卡面时提前解锁
+			lockBuffSelect(D6_SKILL_SELECT_LOCK_MS, d6PreSkillBuffSample);
+			d6PreSkillBuffSample = null;
 			resetBuffScreenState();
-			addWanxiangling(D6_ISLAND_BUFF_GAIN, '舞技强化选择');
+			addBuffGainOnce('舞技强化选择');
 			d6jueAnalysisLog('skill.pick', {
 				powerBefore,
 				powerAfter: g.d6juePowerLevel,
@@ -3477,14 +3577,21 @@ export class Func323 implements IFuncOrigin {
 				// 混沌精英第二组卡：buff 界面没有退场，只是换了一组卡；选卡锁已经
 				// 覆盖换卡动画，再等 0.7s 入场是纯空等。普通新界面仍按原逻辑等入场。
 				const continuation = d6BuffLastPickTime > 0
-					&& now() - d6BuffLastPickTime <= D6_BUFF_CONTINUATION_MS;
+						&& now() - d6BuffLastPickTime <= D6_BUFF_CONTINUATION_MS;
 				isBuffContinuation = continuation;
 				if (continuation) {
+					// 混沌精英两轮选卡只给一次 +100（在第 2 轮选完后到账）；进入第 2 轮时回退第 1 轮预加，
+					// 使第 2 轮刷新费用校验的 walletBefore 与游戏内真实余额一致，且整岛总计仅 +100。
+					if (d6IslandBuffGainDone) {
+						g.d6jueWanxiangling = Math.max(0, (g.d6jueWanxiangling || 0) - D6_ISLAND_BUFF_GAIN);
+						d6IslandBuffGainDone = false;
+					}
 					d6jueAnalysisLog('buff.continuation', {
 						gap: now() - d6BuffLastPickTime,
 						refresh: d6BuffRefreshCount,
 						lei: g.d6jueLeiLevel || 0,
 						power: g.d6juePowerLevel || 0,
+						wallet: g.d6jueWanxiangling || 0,
 						step: g.d6jueStepLeft || 0,
 					});
 				} else {
@@ -3505,18 +3612,22 @@ export class Func323 implements IFuncOrigin {
 			// 余额不足但仍有剩余次数时，游戏刷新按钮仍为亮蓝色（refreshDark=false），
 			// 点击只弹“万相铃不足”；因此必须同时校验余额、未扣费熔断和单屏上限。
 			const canRefreshBuff = !refreshDark
-				&& (g.d6jueWanxiangling || 0) >= D6_BUFF_REFRESH_COST
-				&& d6BuffRefreshFailCount < 1
-				&& d6BuffRefreshCount < D6_BUFF_REFRESH_MAX_PER_SCREEN;
+					&& (g.d6jueWanxiangling || 0) >= D6_BUFF_REFRESH_COST
+					&& d6BuffRefreshFailCount < 1
+					&& d6BuffRefreshCount < D6_BUFF_REFRESH_MAX_PER_SCREEN;
+			const enterSkillUpgrade = (logMsg: string): boolean => {
+				const preSample = readBuffCardsSample();
+				if (!oper([40], '六道觉_舞技强化')) return false;
+				d6PreSkillBuffSample = preSample;
+				resetBuffScreenState();
+				console.log(logMsg);
+				return true;
+			};
 
 			if (powerLevel <= 2) {
 				// 优先满足通关：力量≤2，轰雷=0时优先轰雷，否则力量；力量卡不可用时再选其他可用buff
 				if (leiLevel === 0 && selectLei()) return true;
-				if (powerSelectable && oper([40], '六道觉_舞技强化')) {
-					resetBuffScreenState();
-					console.log(`[d6jue] 力量等级=${powerLevel}，继续舞技强化`);
-					return true;
-				}
+				if (powerSelectable && enterSkillUpgrade(`[d6jue] 力量等级=${powerLevel}，继续舞技强化`)) return true;
 				if (selectAllowedBuff()) return true;
 			} else if (powerSelectable) {
 				if (leiLevel === 0) {
@@ -3526,20 +3637,12 @@ export class Func323 implements IFuncOrigin {
 						refreshBuffSelection();
 						return true;
 					}
-					if (oper([40], '六道觉_舞技强化')) {
-						resetBuffScreenState();
-						console.log(`[d6jue] 力量等级=${powerLevel}，无轰雷且刷新不可用，选择舞技强化`);
-						return true;
-					}
+					if (enterSkillUpgrade(`[d6jue] 力量等级=${powerLevel}，无轰雷且刷新不可用，选择舞技强化`)) return true;
 					if (selectAllowedBuff()) return true;
 				} else {
 					// 力量3~9、轰雷>=1：可用buff（轰雷与普通buff同优先级） → 力量 → 亮色刷新
 					if (selectAllowedBuff()) return true;
-					if (oper([40], '六道觉_舞技强化')) {
-						resetBuffScreenState();
-						console.log(`[d6jue] 力量等级=${powerLevel}，继续舞技强化`);
-						return true;
-					}
+					if (enterSkillUpgrade(`[d6jue] 力量等级=${powerLevel}，继续舞技强化`)) return true;
 					if (canRefreshBuff) {
 						refreshBuffSelection();
 						return true;
@@ -3595,7 +3698,15 @@ export class Func323 implements IFuncOrigin {
 		if (oper([13], '六道觉_商店界面')) {
 			const point = thisScript.findMultiColor('六道觉_购买buff');
 			if (point) {
-				thisScript.regionClick([[point.x - 10, point.y + 50, point.x + 10, point.y + 140, 500]]);
+				const scalePt = thisScript.helperBridge.helper.GetPoint(1280, 720, right);
+				const uiScale = scalePt.y > 0 ? scalePt.y / 720 : 1;
+				thisScript.regionClick([[
+					Math.round(point.x - 10 * uiScale),
+					Math.round(point.y + 50 * uiScale),
+					Math.round(point.x + 10 * uiScale),
+					Math.round(point.y + 140 * uiScale),
+					500,
+				]]);
 			}
 			if (oper([15], '六道觉_商店_确认购买', 500)) return true;
 			if (oper([16], '六道觉_商店_退出', 500)) return true;
