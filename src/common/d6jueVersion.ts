@@ -7,4 +7,4 @@
  * 规则：影响识别、步数、取点、流程策略的改动，提交前同步改这里。
  * 建议格式：<主题><序号>，例如 counter3+bannerRetry。
  */
-export const D6_LOGIC_VERSION = 'stepTransition1+clickDist1+buffSimilar1+buffWait4+clickSmall1+mapCache2+stepGuard1+clearedChaos1+twoRight1+buffCont1+huanxiDeduct2+buffFast1+battleFail1+initBuffRight1+mapFast1+settleReal2+buffFast2+postReward1+fastFlow2+refreshGuard1+openIntro2+shopRetry1+bannerFast1+huanxiAll1+mapRefine1+skillUnlock1+chaosWallet1+scaleFix1+logRotate1';
+export const D6_LOGIC_VERSION = 'stepTransition1+clickDist1+buffSimilar1+buffWait4+clickSmall1+mapCache2+stepGuard1+clearedChaos1+twoRight1+buffCont1+huanxiDeduct2+buffFast1+battleFail1+initBuffRight1+mapFast1+settleReal2+buffFast2+postReward1+fastFlow2+refreshGuard1+openIntro2+shopRetry1+bannerFast1+huanxiAll1+mapRefine1+skillUnlock1+chaosWallet1+scaleFix1+logRotate1+shopCamera2+buffWait5+unknownDelay1';

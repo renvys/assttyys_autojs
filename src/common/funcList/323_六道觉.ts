@@ -18,6 +18,10 @@ const right = 2;
 
 let mapSwitchLogged = false;
 let unknownMapNotified = false;
+// 未知节点连续计时：退岛回图首帧偶发单帧半亮残影（下帧即恢复），连续持续满 10s 才写告警与弹提示；
+// 期间照旧暂停点击主地图，避免误点。
+let d6UnknownFirstTime = 0;
+let d6UnknownLastTime = 0;
 let mapWarmedUp = false;
 let mapReadCount = 0;
 let bossDetectLogged = false;
@@ -65,6 +69,12 @@ let d6LastRewardDismissTime = 0;
 // 最近一次点击右下角「离开」（绽放 45 / 混沌秘宝 47）的时刻：
 // 右下角「离开」与主地图右下角「唤息」位置完全重合，退出动画未播完前若二次命中会误点唤息并被 func 2 确认扣 300。
 let d6LastRightLeaveClickTime = 0;
+// 最近一次点击退出宁息商店的时刻与上一步点击的主地图槽位：
+// 实机 341 次样本显示：从最右侧 four-4（唤息宁息）退出后点击左侧槽位（three-left 等）时，
+// 3D 镜头向左回正在退店后 1.5~1.62s 尚未结束，会导致 80%+ 吞点击（step=17 8/8）；
+// 据此在点击前精准补等镜头回正，不拖慢其他岛屿和普通槽位。
+let d6LastShopExitTime = 0;
+let d6LastMapClickSlot = '';
 // 开局选完初始技能后的首次进图保护：首次见到主地图唤息时启动与战后一致的镜头解锁等待。
 let d6OpeningMapIntroPending = false;
 // 商店点击购买轰雷的最近一次点击区域与补点标记：首点未弹出确认框且轰雷仍在时补点 1 次，避免超时弃买。
@@ -216,6 +226,16 @@ const D6_MAP_SETTLE_MS = 350;
 const D6_POST_REWARD_MAP_READ_MIN_MS = 650;
 const D6_POST_REWARD_MAP_CLICK_MIN_MS = 1400;
 const D6_POST_REWARD_WINDOW_MS = 4000;
+// 宁息商店退回主地图后的点击下限保护（从点击退店按钮起算）：
+// - 普通商店退场：保底 1850ms，覆盖唤息右侧商店（two-right/three-right）偶发 1.5s 极快退场吞点击；
+// - 最右位 four-4（唤息宁息）退场：无论跳向何槽位（three-left/center/right 均有重试记录），统一保底 2150ms 让 3D 镜头回正。
+const D6_SHOP_EXIT_WINDOW_MS = 4500;
+const D6_SHOP_EXIT_CLICK_MIN_MS = 1850;
+const D6_SHOP_EXIT_FOUR4_CLICK_MIN_MS = 2150;
+// 小地图连续识别到 unknown 满 10s 才弹提示/写告警，过滤退岛首帧淡入残影；
+// 两次观测间隔超过 4s 视为全新一次出现并重新计时（常规轮询间隔 700ms）。
+const D6_UNKNOWN_NOTIFY_MS = 10000;
+const D6_UNKNOWN_CONT_GAP_MS = 4000;
 // 点击岛屿后未观测到离图/岛屿证据时的内部重试等待（不再暴露为界面配置，避免旧方案配置覆盖调优值）。
 // 实机有效入岛约 0.6~1.4s，3000ms/3500ms 兼顾防重点击与偶发吞点击快速补点。
 const D6_STEP_RETRY_MS = 3000;
@@ -261,6 +281,9 @@ const D6_BUFF_SHOT_DEV_REGION = { x0: 60, y0: 140, x1: 900, y1: 360 } as const;
 const D6_BUFF_ENTER_MIN_MS = 450;
 const D6_BUFF_ENTER_SETTLE_MS = 450;
 const D6_BUFF_REFRESH_MIN_MS = 700;
+// 实机 96/96 次正常刷新早退均在 857~968ms 落位；
+// 若新旧三卡配色接近未触发 L1/RATIO 阈值，只要 OCR 已确认本次扣费且满 1050ms + hash 变化 + 相邻帧稳定，即可安全早退。
+const D6_BUFF_REFRESH_OCR_SETTLE_MS = 1050;
 const D6_BUFF_REFRESH_MAX_MS = 2500;
 const D6_BUFF_REFRESH_POLL_MS = 120;
 const D6_BUFF_REFRESH_CONFIRM_MS = 150;
@@ -1271,6 +1294,8 @@ export class Func323 implements IFuncOrigin {
 			d6IslandGainDone = false;
 			d6IslandBuffGainDone = false;
 			d6PreSkillBuffSample = null;
+			d6UnknownFirstTime = 0;
+			d6UnknownLastTime = 0;
 		};
 		const ensureIsland = () => {
 			if (!d6IslandKey) beginIsland(`mid:${g.d6jueStepLeft || 0}`);
@@ -1301,19 +1326,20 @@ export class Func323 implements IFuncOrigin {
 			d6PendingRefreshWalletBefore = walletBefore;
 			d6PendingRefreshTime = now();
 		};
-		// OCR 用于校验/校准每岛固定收益计算：读到值后和计算值比较，差值合理才同步。
-		const readWanxianglingOcr = (tag: string) => {
-			if (thisConf.walletOcr === false) return;
+			// OCR 用于校验/校准每岛固定收益计算：读到值后和计算值比较，差值合理才同步。
+			// 返回 true 表示本次 OCR 已校验通过一笔挂起的刷新扣费（costVerified=1）。
+		const readWanxianglingOcr = (tag: string): boolean => {
+			if (thisConf.walletOcr === false) return false;
 			// 等待卡面动画期间已经并行跑过 buff OCR，调用方紧接着的那次直接跳过。
 			// 只跳过一次：消费后立刻清零，避免影响下一次刷新的费用校验。
 			// 若当前有待校验的刷新扣费（d6PendingRefreshCost > 0），不跳过也不受 1200ms 节流限制，
 			// 避免快速 enter/refresh 间隔缩短后漏掉首轮刷新费用校验。
 			if (d6PendingRefreshCost <= 0 && tag === 'buff' && now() < d6BuffWalletOcrSkipUntil) {
 				d6BuffWalletOcrSkipUntil = 0;
-				return;
+				return false;
 			}
 			const t = now();
-			if (d6PendingRefreshCost <= 0 && t - lastWalletOcrTime < 1200) return;
+			if (d6PendingRefreshCost <= 0 && t - lastWalletOcrTime < 1200) return false;
 			lastWalletOcrTime = t;
 			try {
 				const helper = thisScript.helperBridge.helper;
@@ -1443,8 +1469,10 @@ export class Func323 implements IFuncOrigin {
 					step: g.d6jueStepLeft || 0,
 				});
 				console.log(`[d6jue-wallet] OCR(${tag}) 游戏=${valid ? value : '?'}${valid ? '' : `（读取异常${allText.length ? ':' + allText.join('|') : ''}）`} 计算=${internal}${valid ? ` 校验后=${calc} 差=${rawDiff}` : ''}`);
+				return costVerified === 1;
 			} catch (e) {
 				console.log(`[d6jue-wallet] OCR(${tag}) 异常: ${e}`);
+				return false;
 			}
 		};
 		// 离开当前 buff 界面/换下一组卡时重置入场与刷新计数
@@ -1470,18 +1498,20 @@ export class Func323 implements IFuncOrigin {
 			reason: string,
 			minMs: number,
 			prevSample: D6RegionSample | null = null,
-			duringWait?: () => void,
+			duringWait?: () => boolean | void,
 		): boolean => {
 			const t0 = now();
+			let costVerified = false;
 			if (duringWait) {
 				try {
-					duringWait();
+					costVerified = !!duringWait();
 				} catch (e) {
 					// 并行任务失败不影响卡面等待
 				}
 			}
 			let hash = '';
 			let changed = false;
+			let ocrEarly = false;
 			let timeout = false;
 			if (reason !== 'refresh' || !prevSample) {
 				const settleMs = reason === 'refresh'
@@ -1516,6 +1546,21 @@ export class Func323 implements IFuncOrigin {
 						lastPoll = next;
 						continue;
 					}
+					// 新旧三张卡配色较接近时，avgL1/ratio30 可能未达换卡阈值；
+					// 若 OCR 已确认本次刷新真实扣费且已过正常换卡动画时长，结合 hash 变化 + 相邻帧稳定提前早退，
+					// 避免白等满 2500ms 并防止误触发 d6BuffRefreshFailCount++ 熔断本屏剩余刷新。
+					if (
+						costVerified
+							&& now() - t0 >= D6_BUFF_REFRESH_OCR_SETTLE_MS
+							&& cur
+							&& cur.hash !== prevSample.hash
+							&& lastPoll
+							&& isBuffCardsSettled(lastPoll, cur)
+					) {
+						changed = true;
+						ocrEarly = true;
+						break;
+					}
 					lastPoll = cur;
 					const leftMs = D6_BUFF_REFRESH_MAX_MS - (now() - t0);
 					if (leftMs <= 0) break;
@@ -1523,16 +1568,20 @@ export class Func323 implements IFuncOrigin {
 				}
 				if (!changed) {
 					timeout = true;
-					// 刷新后卡面 2.5s 仍无变化（如余额不足/按钮无效），熔断本屏继续刷新。
-					d6BuffRefreshFailCount++;
+					// 刷新后卡面 2.5s 仍无变化且未确认扣费（如余额不足/按钮无效），熔断本屏继续刷新；
+					// 若 OCR 已确认本次扣费，不误熔断剩余刷新次数。
+					if (!costVerified) {
+						d6BuffRefreshFailCount++;
+					}
 				}
 			}
 			const waited = now() - t0;
-			perfLog('buff.wait', waited, `reason=${reason} changed=${changed ? 1 : 0} timeout=${timeout ? 1 : 0} refresh=${d6BuffRefreshCount}`, true);
+			perfLog('buff.wait', waited, `reason=${reason} changed=${changed ? 1 : 0} ocrEarly=${ocrEarly ? 1 : 0} timeout=${timeout ? 1 : 0} refresh=${d6BuffRefreshCount}`, true);
 			d6jueAnalysisLog('buff.wait', {
 				reason,
 				waited,
 				changed: changed ? 1 : 0,
+				ocrEarly: ocrEarly ? 1 : 0,
 				timeout: timeout ? 1 : 0,
 				hash,
 				refresh: d6BuffRefreshCount,
@@ -1541,10 +1590,10 @@ export class Func323 implements IFuncOrigin {
 				wallet: g.d6jueWanxiangling || 0,
 				step: g.d6jueStepLeft || 0,
 			});
-			console.log(`[d6jue-buff] 卡面等待(${reason}) ${waited}ms changed=${changed ? 'T' : 'F'} timeout=${timeout ? 'T' : 'F'} hash=${hash || (prevSample ? '?' : '-')}`);
+			console.log(`[d6jue-buff] 卡面等待(${reason}) ${waited}ms changed=${changed ? 'T' : 'F'}${ocrEarly ? '(ocr)' : ''} timeout=${timeout ? 'T' : 'F'} hash=${hash || (prevSample ? '?' : '-')}`);
 			return true;
 		};
-			// 舞技强化/buff 界面右下角刷新：OCR 可用时等下一次读数校验费用
+		// 舞技强化/buff 界面右下角刷新：OCR 可用时等下一次读数校验费用
 		const refreshBuffSelection = () => {
 			const before = g.d6jueWanxiangling || 0;
 			// 点击前采样卡面：刷新后按 L1 差异确认换卡 + 稳定早退
@@ -1574,8 +1623,9 @@ export class Func323 implements IFuncOrigin {
 			waitBuffCardsStable('refresh', D6_BUFF_REFRESH_MIN_MS, prevSample, () => {
 				// 点击后游戏钱包约 0.3s 才刷新；先等一小段再 OCR，避免读到扣费前的值。
 				sleep(350);
-				readWanxianglingOcr('buff');
+				const verified = readWanxianglingOcr('buff');
 				d6BuffWalletOcrSkipUntil = now() + 3000;
+				return verified;
 			});
 			// 换卡稳定后保持 settled=true，下一轮不再重复 enter 等待。
 			d6BuffScreenSettled = true;
@@ -2180,6 +2230,7 @@ export class Func323 implements IFuncOrigin {
 			d6HuanxiPendingTime = now();
 			d6HuanxiPendingSig = mapSig;
 			d6HuanxiUsedSeq = getStepTracker().islandSeq;
+			d6LastShopExitTime = 0;
 			// 点唤息后约 200~350ms 弹出确认框：本轮直接短轮询确认，省掉回主循环等 func 2 的 ~0.7s。
 			for (let confirmTry = 0; confirmTry < 4; confirmTry++) {
 				thisScript.keepScreen();
@@ -2423,16 +2474,26 @@ export class Func323 implements IFuncOrigin {
 				if (unknownNodes.length > 0) {
 					// 主动唤息换图动画过渡帧常出现短暂 unknown，期间静默跳过等待下一帧，不弹 toast/写告警。
 					if (d6HuanxiPending) {
+						d6UnknownFirstTime = 0;
+						d6UnknownLastTime = 0;
 						return false;
 					}
-					if (!unknownMapNotified) {
+					const unknownNow = now();
+					if (d6UnknownFirstTime === 0 || unknownNow - d6UnknownLastTime > D6_UNKNOWN_CONT_GAP_MS) {
+						d6UnknownFirstTime = unknownNow;
+						unknownMapNotified = false;
+					}
+					d6UnknownLastTime = unknownNow;
+					const unknownDuration = unknownNow - d6UnknownFirstTime;
+					if (!unknownMapNotified && unknownDuration >= D6_UNKNOWN_NOTIFY_MS) {
 						const nodeText = state.nodes.map(n => `${d6MapColName(n.col)}${n.type}(ncc${n.score.toFixed(2)}${n.shapeScore ? `/形${n.shapeScore.toFixed(2)}` : ''},亮${n.meanLum.toFixed(0)},金${n.gold})`).join(' | ');
 						const pinText = state.pin ? `${state.pin.x},${state.pin.y}` : '未识别';
-						const detail = `定位针=${pinText} 节点: ${nodeText}`;
+						const detail = `持续${unknownDuration}ms 定位针=${pinText} 节点: ${nodeText}`;
 						console.log(`[d6jue-map] 出现未知岛屿，暂停点击主地图；${detail}`);
 						d6jueUnknownLog(`unknown-skip ${detail}`);
 						d6jueAnalysisLog('map.unknown', {
 							step: g.d6jueStepLeft || 0,
+							duration: unknownDuration,
 							nodes: state.nodes.map(n => `${d6MapColName(n.col)}${n.type}:${n.score.toFixed(2)}:${n.meanLum.toFixed(0)}:${n.gold}`).join('|'),
 							pin: pinText,
 							lei: g.d6jueLeiLevel || 0,
@@ -2448,6 +2509,8 @@ export class Func323 implements IFuncOrigin {
 					return false;
 				}
 				unknownMapNotified = false;
+				d6UnknownFirstTime = 0;
+				d6UnknownLastTime = 0;
 
 				// 待确认期间：稳定地图上重读计数器，读数下降即可确认推进。
 				if (getStepTracker().pending && rowValid && mapUpdate.settled) {
@@ -2782,7 +2845,22 @@ export class Func323 implements IFuncOrigin {
 					}
 					d6LastRewardDismissTime = 0;
 				}
+				if (d6LastShopExitTime > 0) {
+					const shopAge = now() - d6LastShopExitTime;
+					if (shopAge >= 0 && shopAge < D6_SHOP_EXIT_WINDOW_MS) {
+						const targetMinMs = d6LastMapClickSlot === 'four-4'
+							? D6_SHOP_EXIT_FOUR4_CLICK_MIN_MS
+							: D6_SHOP_EXIT_CLICK_MIN_MS;
+						const shopRemain = targetMinMs - shopAge;
+						if (shopRemain > 0 && shopRemain <= 1200) {
+							sleep(shopRemain);
+							perfLog('map.shop_settle', shopRemain, `prev=${d6LastMapClickSlot || '-'} cur=${choice.slot} age=${shopAge}`, true);
+						}
+					}
+					d6LastShopExitTime = 0;
+				}
 				thisScript.regionClick(clickOper);
+				d6LastMapClickSlot = choice.slot;
 				getStepTracker().noteClick(now(), rowKey, lastMapHash);
 				syncStepState();
 				g.d6jueLastMapSigTime = now();
@@ -2866,6 +2944,8 @@ export class Func323 implements IFuncOrigin {
 			g.d6jueStarted = true;
 			g.d6jueStartPrompted = false;
 			unknownMapNotified = false;
+			d6UnknownFirstTime = 0;
+			d6UnknownLastTime = 0;
 			bossDetectLogged = false;
 			shopGridMissLogged = false;
 			shopEnterTime = 0;
@@ -2905,6 +2985,8 @@ export class Func323 implements IFuncOrigin {
 			d6HuanxiCandidateTime = 0;
 			d6LastRewardDismissTime = 0;
 			d6LastRightLeaveClickTime = 0;
+			d6LastShopExitTime = 0;
+			d6LastMapClickSlot = '';
 			d6OpeningMapIntroPending = false;
 			d6ShopBuyLastOper = null;
 			d6ShopBuyRetried = false;
@@ -3145,6 +3227,7 @@ export class Func323 implements IFuncOrigin {
 				lei: g.d6jueLeiLevel || 0,
 				power: g.d6juePowerLevel || 0,
 			});
+			d6LastShopExitTime = now();
 			thisScript.regionClick(thisScript.helperBridge.regionClickTrans([
 				[right, 1280, 720, 1200, 610, 1245, 660, 500],
 			]));
@@ -3399,6 +3482,7 @@ export class Func323 implements IFuncOrigin {
 					power: g.d6juePowerLevel || 0,
 				});
 			}
+			d6LastShopExitTime = now();
 			thisScript.regionClick(thisScript.helperBridge.regionClickTrans([
 				[right, 1280, 720, 1200, 610, 1245, 660, 500],
 			]));
