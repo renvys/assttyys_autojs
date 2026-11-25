@@ -25,6 +25,7 @@ import { MyFloaty } from '@/system/MyFloaty';
 import ncnnBgyx from '@/system/ncnn/ncnnBgyx';
 import { commonConfigVal } from '@/common/commonConfig';
 import { perfLogLine } from '@/common/perfLog';
+import { isD6DebugMode } from '@/common/d6jueVersion';
 
 /**
  * 脚本对象，一个程序只能有一个
@@ -622,35 +623,42 @@ export class Script {
 		// test end
 		const runThread = threads.start(function () {
 			try {
+				const perfDebug = isD6DebugMode();
 				// eslint-disable-next-line no-constant-condition
 				while (true) {
-					const loopStart = Date.now();
+					const loopStart = perfDebug ? Date.now() : 0;
 					self.keepScreen(false);
-					const screenCost = Date.now() - loopStart;
-					if (screenCost >= 80) {
-						const line = `[perf] keepScreen ${screenCost}ms`;
-						console.log(line);
-						perfLogLine(line);
-					}
-					for (let i = 0; i < self.scheme.funcList.length; i++) {
-						const funcStart = Date.now();
-						const handled = self.oper(self.scheme.funcList[i], undefined);
-						const funcCost = Date.now() - funcStart;
-						if (funcCost >= 120) {
-							const line = `[perf] func ${self.scheme.funcList[i].id} ${funcCost}ms handled=${handled}`;
+					if (perfDebug) {
+						const screenCost = Date.now() - loopStart;
+						if (screenCost >= 80) {
+							const line = `[perf] keepScreen ${screenCost}ms`;
 							console.log(line);
 							perfLogLine(line);
+						}
+					}
+					for (let i = 0; i < self.scheme.funcList.length; i++) {
+						const funcStart = perfDebug ? Date.now() : 0;
+						const handled = self.oper(self.scheme.funcList[i], undefined);
+						if (perfDebug) {
+							const funcCost = Date.now() - funcStart;
+							if (funcCost >= 120) {
+								const line = `[perf] func ${self.scheme.funcList[i].id} ${funcCost}ms handled=${handled}`;
+								console.log(line);
+								perfLogLine(line);
+							}
 						}
 						if (handled) {
 							self.currentDate = new Date();
 							break;
 						}
 					}
-					const loopCost = Date.now() - loopStart;
-					if (loopCost >= 200) {
-						const line = `[perf] loop ${loopCost}ms`;
-						console.log(line);
-						perfLogLine(line);
+					if (perfDebug) {
+						const loopCost = Date.now() - loopStart;
+						if (loopCost >= 200) {
+							const line = `[perf] loop ${loopCost}ms`;
+							console.log(line);
+							perfLogLine(line);
+						}
 					}
 					sleep(+self.scheme.commonConfig.loopDelay);
 				}

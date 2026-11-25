@@ -9,7 +9,7 @@ import { perfLogLine } from '@/common/perfLog';
 import { d6jueUnknownLog } from '@/common/d6jueLog';
 import { d6jueAnalysisLog, d6jueAnalysisSetRun, d6jueAnalysisPath } from '@/common/d6jueAnalysisLog';
 import { d6juePruneArtifacts } from '@/common/d6jueArtifacts';
-import { D6_LOGIC_VERSION } from '@/common/d6jueVersion';
+import { D6_LOGIC_VERSION, isD6DebugMode } from '@/common/d6jueVersion';
 
 // const normal = -1; //定义常量
 const left = 0;
@@ -66,7 +66,7 @@ let d6HuanxiCandidateTime = 0;
 // 最近一次点掉「获得奖励」弹窗的完成时刻：战后退回地图存在约 1.25s 镜头下拉停稳/输入锁，
 // 而非战后（神秘/宁息/绽放/秘宝）退回地图无此长动画；据此区分两类回图的稳定等待。
 let d6LastRewardDismissTime = 0;
-// 最近一次点击右下角「离开」（绽放 45 / 混沌秘宝 47）的时刻：
+// 最近一次点击右下角「离开」（绽放 / 混沌秘宝）的时刻：
 // 右下角「离开」与主地图右下角「唤息」位置完全重合，退出动画未播完前若二次命中会误点唤息并被 func 2 确认扣 300。
 let d6LastRightLeaveClickTime = 0;
 // 最近一次点击退出宁息商店的时刻与上一步点击的主地图槽位：
@@ -186,9 +186,6 @@ function d6RunHasProgress(): boolean {
 	if (!stepTracker) return false;
 	return stepTracker.consumed > 0 || stepTracker.islandSeq > 0;
 }
-// TODO(六道觉): 后续恢复“只有脚本点击开启才执行六道觉操作”的限制，改回 true
-const REQUIRE_SCRIPT_START = false;
-
 const MAP_PRIORITY: { [key: string]: number } = {
 	神秘: 4,
 	宁息: 3,
@@ -241,21 +238,45 @@ const D6_UNKNOWN_CONT_GAP_MS = 4000;
 const D6_STEP_RETRY_MS = 3000;
 const D6_STEP_RETRY_HASH_CHANGED_MS = 3500;
 const D6_MAP_CLICK_HALF_W = 6;
-// 这些 operator 属于地图选择阶段，命中时不能当作“已进入岛屿”的证据。
-// 0~3 是进入副本/开启，37/44 是唤息亮暗；其余 operator 在 stepPending 期间命中
-// 都说明已经离开地图、进入岛屿事件/战斗/商店/buff 等界面。
+// Func323.operator 状态索引，与数组顺序严格一一对应
+const OP = {
+	START: 0,
+	CONFIRM_SHIKIGAMI: 1,
+	START_DEPLOY: 2,
+	SELECT_DANCE: 3,
+	INIT_SKILL: 4,
+	HUANXI_DARK: 5,
+	HUANXI_BRIGHT: 6,
+	HUANXI_CONFIRM: 7,
+	MAP_SLOTS: 8,
+	REWARD: 9,
+	BLOOM_LEAVE: 10,
+	MYSTERY_CONVERT: 11,
+	MYSTERY_FORGE: 12,
+	BLESSING_USE: 13,
+	CHAOS_CHEST: 14,
+	CHAOS_ELITE: 15,
+	BATTLE_CHALLENGE: 16,
+	BATTLE_SELECT_MONSTER: 17,
+	SHOP_SCREEN: 18,
+	SHOP_CONFIRM_BUY: 19,
+	SHOP_REFRESH: 20,
+	BUFF_REFRESH: 21,
+	BUFF_REFRESH_DARK: 22,
+	SKILL_UPGRADE: 23,
+	SKILL_UPGRADE_PICK: 24,
+	BOSS_CHALLENGE: 25,
+	BATTLE_FAIL_GIVEUP: 26,
+	BATTLE_FAIL_CONFIRM: 27,
+	SETTLE_DONE: 28,
+} as const;
+// 这些 operator 属于开局或地图选择阶段，命中时不能当作“已进入岛屿”的证据；
+// 其余 operator 在 stepPending 期间命中都说明已经离开地图、进入岛屿事件/战斗/商店/buff 等界面。
 const D6_STEP_MAP_OPERATORS: { [key: number]: boolean } = {
-	0: true,
-	1: true,
-	2: true,
-	3: true,
-	// 12 核心buff满层/29 双倍次数是地图或开局就可见的标识，
-	// 即使以后补上取色也不能当作“已进入岛屿”的证据。
-	12: true,
-	29: true,
-	37: true,
-	44: true,
-	54: true,
+	[OP.START]: true,
+	[OP.HUANXI_DARK]: true,
+	[OP.HUANXI_BRIGHT]: true,
+	[OP.HUANXI_CONFIRM]: true,
 };
 const D6_HUANXI_COST = 300;
 // 唤息点击后，新地图行签名要连续稳定这么久才确认扣款：
@@ -271,8 +292,6 @@ const D6_BUFF_REFRESH_COST = 50;
 // buff 三张卡的图标区（开发坐标 1280x720）：入场/刷新动画期间会整体变化。
 // refresh 前后读这个区域的哈希，用于确认旧卡确实换成了新一组。
 const D6_BUFF_CARDS_DEV_REGION = { x0: 60, y0: 140, x1: 900, y1: 260 } as const;
-// 未知卡调试截图区域：图标+卡名，不截整屏，保存更快、文件更小
-const D6_BUFF_SHOT_DEV_REGION = { x0: 60, y0: 140, x1: 900, y1: 360 } as const;
 // 入场/刷新等待：
 // 视频 4fps 实测：
 // - 入场切到 buff 界面后约 0.25~0.50s 卡面即完全稳定（相邻帧 L1 < 1），450ms 与并行钱包 OCR 重叠；
@@ -341,53 +360,36 @@ function d6ShopGridIndex(x: number, y: number): number {
 	const row = y < D6_SHOP_GRID_Y_BOUNDS[1] ? 0 : (y < D6_SHOP_GRID_Y_BOUNDS[2] ? 1 : 2);
 	return row * 3 + col;
 }
-// buff 黑名单：默认永不选择
-const DEFAULT_BUFF_BLACKLIST = '六道·混沌,六道·偶戏,妖力化身,攻击加成,背水一战';
+// buff 黑名单：永不选择（所有名称均需在 multiFindColors.ts 配置 六道觉_buff_<名称>）
+const D6_BUFF_BLACKLIST = ['六道·混沌', '六道·偶戏', '妖力化身', '攻击加成', '背水一战'];
 // buff 名称 -> multiFindColors 的 key（去掉 Rhino 不认的间隔号 ·）
 const buffColorKey = (name: string) => `六道觉_buff_${name.replace(/\u00b7/g, '')}`;
-// 需要注意的 buff：名称用于图标识别和等级限制
-const CAUTION_BUFF_YAO = '妖力化身';
+// 炽焚天火需在拿到轰雷后才能选
 const CAUTION_BUFF_CHIFEN = '炽焚天火';
-const CAUTION_BUFF_BEISHUI = '背水一战';
-const CAUTION_BUFF_ATTACK = '攻击加成';
-// 已取色的已知 buff；黑名单里的名称会在运行时追加
-const KNOWN_BUFF_NAMES = [CAUTION_BUFF_YAO, CAUTION_BUFF_CHIFEN, CAUTION_BUFF_BEISHUI, CAUTION_BUFF_ATTACK, '六道化身', '洞察之力', '极道轰炸'];
+// 已取色的已知 buff（含黑名单）
+const D6_KNOWN_BUFF_NAMES = [...D6_BUFF_BLACKLIST, CAUTION_BUFF_CHIFEN, '六道化身', '洞察之力', '极道轰炸'];
 let buffPatternWarned = false;
 
 /**
- * 六道之门·觉（完整挂机流程骨架）
+ * 六道之门·觉完整挂机
  *
- * 当前状态：
- * - 进入、事件、选buff、商店、战斗、结算、统计与方案切换的流程均已搭好。
- * - 开启-六道觉、确认-选择试炼式神、开启-上阵式神、选择舞技、初始技能、备战/唤息、鏖战（主地图节点 + 进入后选择怪物）、挑战、舞技强化、舞技强化刷新、选择强化、获得奖励已取色；其余界面标有 TODO(六道觉) 的 operator 只有注释示例。
+ * 右上角小地图识别逻辑在 src/common/d6jueMap.ts：
+ * - 按金色像素密度找出岛屿图标并分类（鏖战/混沌/神秘/宁息/绽放），
+ *   取当前可进入的一排亮色节点，按从左到右对应主地图固定选择位（OP.MAP_SLOTS）。
+ * - 步数推进由 src/common/d6jueStepTracker.ts 结合地图切换、岛屿证据与回合数字校验。
  *
- * 右上角小地图说明：
- * - 识别逻辑在 src/common/d6jueMap.ts：按金色像素密度找出全部岛屿图标并分类
- *   （鏖战/混沌/神秘/宁息/绽放），亮色=当前可进入，取最上面一排亮色节点，
- *   按从左到右顺序对应主地图固定选择位。
- * - 不假设固定列数/行数，也不再按“某个岛屿出现在左/中/右”单独取主地图锚点；
- *   新增岛屿只需补一份图标模板。
- *
- * 取色说明：
- * 1. 每个 operator 对应流程中的一个界面/状态，编号见数组内注释。
- * 2. 没有 desc 的占位状态会被 isReady() 过滤，运行时不会误判、不会误点击。
- * 3. 补色时取消对应注释，按 1280x720 填入 desc 与 oper 即可，无需改流程代码。
- * 4. 商店购买按钮这类位置会变化的目标，填到 multiFindColors.ts 的
- *    '六道觉_购买buff'（已建好空占位，空 desc 查找返回 null）。
- * 5. 若觉的界面与六道椒图一致，可直接参考/复用 316_六道椒图.ts 的取色数据。
- *
- * 建议方案顺序（需自行在 UI 中添加功能 323）：
+ * 建议方案顺序：
  * [690, 509, 510, 0, 1, 323, 2, 3, 24, 29, 503]
- * 注意：本功能应排在[2退出结算]前；入口步骤需要方案中包含[29庭院进入探索地图]。
+ * 注意：本功能应排在[2退出结算]前。
  */
 // 主地图固定选择位（1280x720 开发坐标），下标与 d6jueMap.ts 的 D6_MAP_SLOTS 一致。
-// 运行时用于两件事：operator[53] 的固定点击区；横幅锚点检测时反推截图缩放比例。
+// 运行时用于两件事：OP.MAP_SLOTS 的固定点击区；横幅锚点检测时反推截图缩放比例。
 // 混沌秘宝/绽放离开按钮均含渐变背景点，固定用 88 的相似度检查（容差 31）：
 // - 绽放点 (1073,693) 在绽放实机帧上通道差约 1~15（<=31），而在混沌秘宝截图中差 53（>31），
-//   因此 45 用 88 先判不会误伤 47，又能彻底杜绝全局高 colorSimilar 漏判绽放后落入 47 误抢。
+//   因此 OP.BLOOM_LEAVE 用 88 先判不会误伤 OP.CHAOS_CHEST，又能彻底杜绝全局高 colorSimilar 漏判绽放后落入秘宝误抢。
 const D6_CHEST_SIMILAR = 88;
 const D6_BLOOM_SIMILAR = 88;
-// 绽放(45)/混沌秘宝(47) 点击右下角「离开」后的防连点冷却（接在 afterSleep=1000ms 之后，总计 2000ms），
+// 绽放(OP.BLOOM_LEAVE)/混沌秘宝(OP.CHAOS_CHEST) 点击右下角「离开」后的防连点冷却（接在 afterSleep=1000ms 之后，总计 2000ms），
 // 既让回图后可立即读小地图，又彻底防止退场过渡期二次点击误触主地图同位置的「唤息」。
 const D6_RIGHT_LEAVE_COOLDOWN_MS = 1000;
 // 单次 buff 界面最多允许刷新次数兜底，防止任何异常下无限刷新。
@@ -481,7 +483,7 @@ function pickD6MapClickPoint(slotIndex: number): { x: number; y: number; cx: num
 export class Func323 implements IFuncOrigin {
 	id = 323;
 	name = '六道觉';
-	desc = '六道之门·觉完整挂机(右上角地图按图标模板识别)；应排在[2退出结算]前';
+	desc = '六道之门·觉完整挂机；应排在[2退出结算]前';
 	config = [{
 		desc: '配置',
 		config: [{
@@ -489,11 +491,6 @@ export class Func323 implements IFuncOrigin {
 			desc: '结束时使用ospPush推送结果',
 			type: 'switch',
 			default: false,
-		}, {
-			name: 'onlyDouble',
-			desc: '只打双倍（双倍次数用完自动停止）',
-			type: 'switch',
-			default: true,
 		}, {
 			name: 'overTimes',
 			desc: '挂机局数，完成后自动切换方案，0表示一直刷',
@@ -504,63 +501,10 @@ export class Func323 implements IFuncOrigin {
 			desc: '下一个方案',
 			type: 'scheme',
 			default: '返回庭院',
-		}, {
-			name: 'coreBuff',
-			desc: '核心buff名称（OCR识别，留空则不主动选buff）',
-			type: 'text',
-			default: '',
-		}, {
-			name: 'coreBuffMax',
-			desc: '核心buff目标层数（0表示不限制）',
-			type: 'integer',
-			default: '0',
-		}, {
-			name: 'logMapNodes',
-			desc: '识别并记录右上角地图结构（仅日志）',
-			type: 'switch',
-			default: false,
-		}, {
-			name: 'perfLog',
-			desc: '性能日志（记录地图识别/选buff/状态检查耗时）',
-			type: 'switch',
-			default: false,
-		}, {
-			name: 'mapRetryMs',
-			desc: '地图点击未生效后的重试等待（毫秒）',
-			type: 'integer',
-			default: '700',
-		}, {
-			name: 'walletOcr',
-			desc: '万相铃按每岛固定收益计算，商店/选buff时OCR校验并校准；关闭OCR后只靠计算，可能累积误差',
-			type: 'switch',
-			default: true,
-		}, {
-			name: 'buffShot',
-			desc: '未知buff卡截图（调试/补取色用；默认关闭，开启后每次选未知卡会多花约0.2s）',
-			type: 'switch',
-			default: false,
-		}, {
-			name: 'buffBlacklist',
-			desc: 'buff黑名单（逗号分隔，默认：六道·混沌,六道·偶戏,妖力化身,攻击加成,背水一战；其中妖力化身/攻击加成/背水一战始终强制加入；名称需在 multiFindColors.ts 配置 六道觉_buff_<名称> 多点找色）',
-			type: 'text',
-			default: DEFAULT_BUFF_BLACKLIST,
 		}],
 	}];
-	// 注意：数组索引必须与注释中的状态编号严格一致，空状态也要保留占位，否则 thisOperator[n] 会错位
-	operator: IFuncOperatorOrigin[] = [{ // 0 探索地图 -> 进入六道之门
-		// TODO(六道觉): 取色（探索地图界面）
-		// 坐标沿用 316[31]，进入位置不同再调整
-		oper: [
-			[center, 1280, 720, 936, 649, 977, 683, 1000],
-		],
-	}, { // 1 六道之门 -> 选择「觉」
-		// TODO(六道觉): 取色（六道之门副本选择界面）
-		// TODO(六道觉): 补充点击「觉」的 oper
-	}, { // 2 六道觉 -> 进入副本
-		// TODO(六道觉): 取色（觉副本详情/准备界面）
-		// TODO(六道觉): 补充进入/挑战按钮的 oper
-	}, { // 3 六道觉 -> 开启-六道觉（开新局，重置本局统计）
-		// 已取色：开启-六道觉
+	// 数组索引与顶部 OP 常量严格一一对应
+	operator: IFuncOperatorOrigin[] = [{ // 0 START: 开启-六道觉（开新局，重置本局统计）
 		desc: [1280, 720,
 			[
 				[right, 1100, 51, 0xf7e52c],
@@ -573,42 +517,225 @@ export class Func323 implements IFuncOrigin {
 		oper: [
 			[right, 1280, 720, 1120, 600, 1210, 680, 800], // 开启-六道觉
 		],
-	}, { // 4 六道觉 -> 选事件界面
-		// 事件判定只依赖唤息（状态 37/44）：暗/亮任一命中即处理，节点由小地图决定
-		// TODO(六道觉): 如需保留通用选事件界面识别，可在此取色
-	}, { // 5 六道觉 -> 事件图标（已废弃：目标完全由小地图决定，不再使用事件图标兜底）
-	}, { // 6 六道觉 -> 选buff界面
-		// 舞技强化/buff选择判定改为「刷新」条件，见状态 39
-		// TODO(六道觉): 如仍需单独识别该界面，可在此取色
-	}, { // 7 选buff_OCR区域（仅坐标，不参与状态判定，由[6]调用）
-		// TODO(六道觉): 填入3个buff名称识别区域 + 3个对应的点击区域
-		// 示例坐标参考 316[33]，确认觉的界面后再调整：
-		// oper: [
-		// 	[center, 1280, 720, 150, 331, 280, 375, 1000], // 识别区域1
-		// 	[center, 1280, 720, 407, 330, 573, 375, 1000], // 识别区域2
-		// 	[center, 1280, 720, 679, 324, 841, 375, 1000], // 识别区域3
-		// 	[center, 1280, 720, 170, 580, 270, 610, 1000], // 点击区域1
-		// 	[center, 1280, 720, 440, 580, 540, 610, 1000], // 点击区域2
-		// 	[center, 1280, 720, 710, 580, 820, 610, 1000], // 点击区域3
-		// ],
-	}, { // 8 六道觉 -> 选buff_选择第一个/跳过
-		// TODO(六道觉): 取色
-		// TODO(六道觉): 补充点击坐标（第一个buff的选中/跳过按钮）
-	}, { // 9 六道觉 -> 选buff_低级buff（选择跳过，不浪费刷新）
-		// TODO(六道觉): 取色
-		// oper 可参考 316[25]/[26]
-	}, { // 10 六道觉 -> 选buff_刷新
-		// TODO(六道觉): 取色
-		// oper 可参考 316[17]/[18]：右下角刷新按钮
-		// [center, 1280, 720, 1191, 621, 1243, 676, 2000]
-	}, { // 11 六道觉 -> 选buff_刷新确认
-		// TODO(六道觉): 取色
-		// oper 可参考 202[2]：刷新弹窗确认按钮
-	}, { // 12 六道觉 -> 核心buff满层检测
-		// TODO(六道觉): 取色（左侧buff栏满层标识）
-		// 参考 316[35] 柔风满层
-	}, { // 13 六道觉 -> 商店界面
-		// 已取色：商店界面
+	}, { // 1 CONFIRM_SHIKIGAMI: 确认-选择试炼式神
+		desc: [1280, 720,
+			[
+				[right, 1128, 577, 0x2c2c2c],
+				[right, 1186, 477, 0xceffff],
+				[right, 1170, 647, 0xc3dce6],
+				[right, 1126, 644, 0x376a92],
+				[right, 1233, 643, 0x425d82],
+			]
+		],
+		oper: [
+			[right, 1280, 720, 1130, 590, 1210, 660, 700], // 确认-选择试炼式神
+		],
+	}, { // 2 START_DEPLOY: 开启-上阵式神
+		desc: [1280, 720,
+			[
+				[right, 1158, 576, 0x242424],
+				[right, 1185, 478, 0xceffff],
+				[right, 1184, 636, 0xc6e3eb],
+				[right, 1240, 635, 0x476893],
+				[right, 1156, 619, 0xcee4ec],
+			]
+		],
+		oper: [
+			[right, 1280, 720, 1140, 590, 1220, 660, 600], // 开启-上阵式神
+		],
+	}, { // 3 SELECT_DANCE: 选择舞技
+		desc: [1280, 720,
+			[
+				[right, 1044, 378, 0x762a05],
+				[right, 1051, 559, 0x246aa0],
+				[right, 1011, 619, 0x173d6b],
+				[right, 1123, 619, 0x85b3b7],
+			]
+		],
+		oper: [
+			[right, 1280, 720, 1000, 610, 1090, 635, 400], // 选择舞技
+		],
+	}, { // 4 INIT_SKILL: 初始技能界面（固定选最右侧技能）
+		desc: [1280, 720,
+			[
+				[left, 312, 186, 0xe0b8c1],
+				[right, 645, 199, 0x317bde],
+				[right, 960, 198, 0xba382d],
+				[left, 184, 672, 0x204157],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 900, 555, 1010, 590, 500], // 技能3（固定选）
+		],
+	}, { // 5 HUANXI_DARK: 唤息_暗（事件界面右下角，仅识别）
+		desc: [1280, 720,
+			[
+				[right, 1188, 619, 0x484848],
+				[right, 1156, 601, 0x555555],
+				[right, 1134, 606, 0x5d5d5d],
+				[right, 1149, 591, 0x484848],
+			]
+		],
+		notForCnt: true,
+	}, { // 6 HUANXI_BRIGHT: 唤息_亮/金（事件界面右下角，仅识别）
+		desc: [1280, 720,
+			[
+				[right, 1188, 619, 0x58452e],
+				[right, 1156, 601, 0x69522e],
+				[right, 1134, 606, 0x735b31],
+				[right, 1149, 591, 0x59452d],
+			]
+		],
+		notForCnt: true,
+	}, { // 7 HUANXI_CONFIRM: 唤息_确认框（仅在 d6HuanxiPending 期间主动确认，减少依赖外部 func 2 并压缩等待）
+		desc: '退出结算_取消确认框',
+		oper: [
+			[center, 1280, 720, 680, 411, 838, 452, 200],
+		],
+		notForCnt: true,
+	}, { // 8 MAP_SLOTS: 主地图固定选择位（只按小地图推断的数量/顺序点击，不做状态判定）
+		// 下标与 d6jueMap.ts 的 D6_MAP_SLOTS 严格一致：
+		// 0=单个(中)；1=两个(左)；2=两个(右)；3=三个(左)；4=三个(中)；5=三个(右)；6~9=四个(从左到右)。
+		// 实测：点岛屿平台/水面无效，必须点岛屿上方的竖排横幅/名称。以下区域都对准横幅。
+		oper: [
+			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[0], 500], // single
+			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[1], 500], // two-left
+			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[2], 500], // two-right
+			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[3], 500], // three-left
+			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[4], 500], // three-center
+			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[5], 500], // three-right
+			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[6], 500], // four-1
+			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[7], 500], // four-2
+			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[8], 500], // four-3
+			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[9], 500], // four-4
+		],
+	}, { // 9 REWARD: 获得奖励界面
+		desc: [1280, 720,
+			[
+				[center, 571, 165, 0xfce7a1],
+				[center, 622, 146, 0xfbe392],
+				[right, 672, 168, 0xffe8a6],
+				[right, 720, 155, 0xfbe598],
+				[right, 751, 159, 0xfbe69e],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 388, 552, 897, 704, 500], // 获得奖励-继续
+		],
+	}, { // 10 BLOOM_LEAVE: 绽放_离开（绽放之屿右下角直接离开）
+		desc: [1280, 720,
+			[
+				[right, 1201, 657, 0xecdaba],
+				[right, 1180, 658, 0xe9d4b1],
+				[right, 1183, 629, 0x0e0b08],
+				[right, 1182, 688, 0x282016],
+				[right, 1073, 693, 0x7f99b7],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 1160, 635, 1205, 680, 1000], // 绽放-离开
+		],
+	}, { // 11 MYSTERY_CONVERT: 神秘_转换（神秘之屿-技能转换）
+		desc: [1280, 720,
+			[
+				[left, 122, 36, 0xf8f3e0],
+				[left, 139, 35, 0xf8f3e0],
+				[left, 122, 45, 0xf8f3e0],
+				[left, 182, 671, 0x234862],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 10, 20, 50, 65, 350], // 关闭/返回
+		],
+	}, { // 12 MYSTERY_FORGE: 神秘_仿造
+		desc: [1280, 720,
+			[
+				[right, 1185, 622, 0x958858],
+				[right, 1221, 655, 0x968552],
+				[right, 1221, 631, 0x2b2920],
+				[right, 1171, 679, 0x1c1b1a],
+				[right, 1148, 657, 0x101011],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 10, 20, 50, 65, 350], // 关闭/返回
+		],
+	}, { // 13 BLESSING_USE: 万象赐福使用
+		desc: [1280, 720,
+			[
+				[center, 616, 336, 0x8b62a3],
+				[right, 653, 336, 0x8d64a5],
+				[center, 631, 349, 0x5a4273],
+				[right, 662, 376, 0xf8e627],
+				[right, 727, 443, 0xf3b25e],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 670, 425, 783, 463, 1000], // 使用万象赐福
+		],
+	}, { // 14 CHAOS_CHEST: 混沌_幸运秘宝
+		desc: [1280, 720,
+			[
+				[left, 128, 52, 0xf8f3e0],
+				[left, 159, 51, 0xf8f3e0],
+				[left, 184, 49, 0xf8f3e0],
+				[left, 203, 43, 0xf8f3e0],
+				// 只用右下角「离开」按钮做秘宝专属点。宝匣/横幅会随开箱动画变化，
+				// 离开按钮是静态的，且精英界面没有这个按钮（精英对应点为蓝色背景，diff 100+）。
+				// 离开按钮上取 3 个点：外圈暗部、内圈金边、白色出口箭头。
+				[right, 1168, 633, 0x090704],
+				[right, 1185, 675, 0xdbbf92],
+				[right, 1200, 658, 0xead5b4],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 1160, 635, 1200, 685, 1000], // 混沌-幸运秘宝
+		],
+	}, { // 15 CHAOS_ELITE: 混沌_精英
+		// 只用左上角「混沌之屿」标题的 5 个取色点，不再绑定精英立绘/名字条。
+		// 混沌秘宝由 OP.CHAOS_CHEST 先判断；判断不到时才按精英处理。
+		desc: [1280, 720,
+			[
+				[left, 148, 29, 0xf8f3e0],
+				[left, 159, 51, 0xf8f3e0],
+				[left, 186, 50, 0xf8f3e0],
+				[left, 211, 38, 0xf7f2df],
+				[left, 128, 52, 0xf8f3e0],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 625, 230, 760, 380, 500], // 混沌-精英
+		],
+	}, { // 16 BATTLE_CHALLENGE: 战斗_挑战
+		desc: [1280, 720,
+			[
+				[right, 1156, 643, 0xd2e7ef],
+				[right, 1172, 627, 0x2d2d2d],
+				[right, 1128, 584, 0x2f2f2f],
+				[right, 1197, 592, 0xb5bcd1],
+				[left, 182, 671, 0x274962],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 1125, 590, 1205, 665, 1000], // 挑战
+		],
+	}, { // 17 BATTLE_SELECT_MONSTER: 鏖战_选择怪物（进入鏖战之屿后的敌人选择界面）
+		// 本状态对应进入鏖战后左右两个敌人的选择界面，点击右侧敌人 730,250-880,420。
+		desc: [1280, 720,
+			[
+				[left, 120, 40, 0xf7f2df],
+				[left, 116, 48, 0xf8f3e0],
+				[left, 138, 41, 0xf8f3e0],
+				[left, 150, 35, 0xf7f2df],
+				[center, 440, 264, 0x355080],
+				[right, 738, 415, 0x6976a0],
+				[left, 250, 40, 0x573514],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 730, 250, 880, 420, 0], // 右侧怪物
+		],
+	}, { // 18 SHOP_SCREEN: 商店界面（仅识别）
 		desc: [1280, 720,
 			[
 				[right, 1227, 154, 0xc6dfd4],
@@ -618,11 +745,7 @@ export class Func323 implements IFuncOrigin {
 				[right, 1228, 335, 0x3c5265],
 			]
 		],
-	}, { // 14 六道觉 -> 商店购买buff（动态位置，不参与状态判定）
-		// 可购买buff图标通过 findMultiColor('六道觉_购买buff') 定位，
-		// 取色数据填在 src/common/multiFindColors.ts
-	}, { // 15 六道觉 -> 商店_确认购买
-		// 按实机截图取色：米色弹窗背景 + 红色取消 + 金色确定
+	}, { // 19 SHOP_CONFIRM_BUY: 商店_确认购买（米色弹窗背景 + 红色取消 + 金色确定）
 		desc: [1280, 720,
 			[
 				[left, 115, 37, 0x66645c],
@@ -636,53 +759,76 @@ export class Func323 implements IFuncOrigin {
 		oper: [
 			[center, 1280, 720, 678, 409, 837, 453, 500], // 确认购买
 		],
-	}, { // 16 六道觉 -> 商店_退出
-		// TODO(六道觉): 取色
-		// oper 可参考 316[7].oper[1]：[center, 1280, 720, 1174, 588, 1241, 649, 500]
-	}, { // 17 六道觉 -> 神秘_转换
-		// 已取色：神秘之屿-技能转换
+	}, { // 20 SHOP_REFRESH: 商店_刷新（仅识别）
 		desc: [1280, 720,
 			[
-				[left, 122, 36, 0xf8f3e0],
-				[left, 139, 35, 0xf8f3e0],
-				[left, 122, 45, 0xf8f3e0],
-				[left, 182, 671, 0x234862],
+				[center, 611, 632, 0xfff9df],
+				[center, 622, 608, 0x79b6d3],
+				[center, 620, 623, 0x273e62],
+				[center, 611, 614, 0x24395a],
+			]
+		],
+		notForCnt: true,
+	}, { // 21 BUFF_REFRESH: 舞技强化_刷新（仅识别）
+		desc: [1280, 720,
+			[
+				[right, 1216, 634, 0xa6fdff],
+				[right, 1240, 647, 0x2b4569],
+				[right, 1184, 647, 0x294366],
+				[right, 1205, 657, 0xecfafe],
+			]
+		],
+		notForCnt: true,
+	}, { // 22 BUFF_REFRESH_DARK: 舞技强化_刷新_暗（刷新次数用完，仅识别）
+		desc: [1280, 720,
+			[
+				[right, 1205, 658, 0xf7f7f7],
+				[right, 1217, 634, 0xe3e3e3],
+				[right, 1184, 648, 0x3f3f40],
+				[right, 1240, 647, 0x414141],
+			]
+		],
+		notForCnt: true,
+	}, { // 23 SKILL_UPGRADE: 舞技强化
+		desc: [1280, 720,
+			[
+				[right, 1093, 184, 0xfbf9e4],
+				[right, 1093, 176, 0xfaf8e7],
+				[right, 1103, 203, 0xf7f1cb],
+				[right, 1088, 483, 0x313a45],
 			]
 		],
 		oper: [
-			[center, 1280, 720, 10, 20, 50, 65, 350], // 关闭/返回
+			[center, 1280, 720, 1030, 555, 1150, 590, 350], // 舞技强化
 		],
-	}, { // 18 六道觉 -> 宝箱
-		// TODO(六道觉): 取色
-		// oper 可参考 316[5]：右下角宝箱
-	}, { // 19 六道觉 -> 特殊事件（星之屿/鏖战等）
-		// TODO(六道觉): 取色
-		// oper 可参考 316[8]/[3]：中间事件图标
-	}, { // 20 六道觉 -> 战斗_挑战
-		// 已取色：挑战按钮
+	}, { // 24 SKILL_UPGRADE_PICK: 舞技强化-选择强化
 		desc: [1280, 720,
 			[
-				[right, 1156, 643, 0xd2e7ef],
-				[right, 1172, 627, 0x2d2d2d],
-				[right, 1128, 584, 0x2f2f2f],
-				[right, 1197, 592, 0xb5bcd1],
-				[left, 182, 671, 0x274962],
+				[left, 280, 267, 0xffffea],
+				[right, 642, 276, 0xffffff],
+				[right, 1021, 255, 0x953e5b],
+				[left, 295, 462, 0x2a6b9e],
+				[right, 654, 454, 0x1e6297],
+				[right, 1010, 458, 0x22669b],
 			]
 		],
 		oper: [
-			[center, 1280, 720, 1125, 590, 1205, 665, 1000], // 挑战
+			[center, 1280, 720, 245, 505, 335, 535, 350], // 选择强化
 		],
-	}, { // 21 六道觉 -> 战斗_使用双倍
-		// TODO(六道觉): 取色
-		// oper 可参考 316[21]：[center, 1280, 720, 671, 419, 794, 467, 1000]
-	}, { // 22 六道觉 -> 战斗_取消双倍
-		// TODO(六道觉): 取色
-		// oper 可参考 316[22]：[center, 1280, 720, 491, 419, 615, 471, 1000]
-	}, { // 23 六道觉 -> 战斗_跳过
-		// TODO(六道觉): 取色
-		// oper 可参考 316[20]：[center, 1280, 720, 1140, 24, 1215, 40, 500]
-	}, { // 24 六道觉 -> 战斗失败_放弃前行
-		// 已按六道觉失败弹窗截图校准：卷轴 + 重新挑战/放弃前行按钮
+	}, { // 25 BOSS_CHALLENGE: 首领挑战
+		desc: [1280, 720,
+			[
+				[right, 891, 642, 0x175c8f],
+				[right, 1146, 647, 0xcde7ef],
+				[right, 1117, 592, 0x2f2f2f],
+				[right, 1162, 637, 0x2c2c2c],
+				[right, 1187, 603, 0xb1b9ce],
+			]
+		],
+		oper: [
+			[center, 1280, 720, 1120, 600, 1200, 675, 1500], // 首领挑战
+		],
+	}, { // 26 BATTLE_FAIL_GIVEUP: 战斗失败_放弃前行
 		desc: [1280, 720,
 			[
 				[center, 460, 450, 0xdf684f],
@@ -697,8 +843,7 @@ export class Func323 implements IFuncOrigin {
 		oper: [
 			[center, 1280, 720, 670, 412, 845, 468, 1000],
 		],
-	}, { // 25 六道觉 -> 战斗失败_确定放弃
-		// 复用 316 的战斗失败界面取色；TODO(六道觉): 拿到六道觉失败截图后再校准
+	}, { // 27 BATTLE_FAIL_CONFIRM: 战斗失败_确定放弃
 		desc: [1280, 720,
 			[
 				[center, 442, 222, 0x644434],
@@ -714,14 +859,7 @@ export class Func323 implements IFuncOrigin {
 		oper: [
 			[center, 1280, 720, 680, 397, 802, 448, 1000],
 		],
-	}, { // 26 六道觉 -> 结算_奖励弹窗
-		// TODO(六道觉): 取色
-		// oper 可参考 316[13]：[right, 1280, 720, 913, 129, 1245, 648, 500]
-	}, { // 27 六道觉 -> 结算_御神经验
-		// TODO(六道觉): 取色
-		// oper 可参考 316[24]
-	}, { // 28 六道觉 -> 结算_完成（统计、推送、切换方案）
-		// 已取色：六道觉结算界面
+	}, { // 28 SETTLE_DONE: 结算_完成（统计、推送、切换方案）
 		desc: [1280, 720,
 			[
 				[right, 1195, 639, 0xd3c5ab],
@@ -734,302 +872,6 @@ export class Func323 implements IFuncOrigin {
 		oper: [
 			[center, 1280, 720, 394, 617, 903, 699, 500], // 结算-继续
 		],
-	}, { // 29 六道觉 -> 双倍次数为0
-		// TODO(六道觉): 取色（开始界面的双倍次数标识）
-		// 参考 316[34]
-	}, { // 30 六道觉 -> 继续
-		// TODO(六道觉): 取色
-		// oper 可参考 316[32]：继续/下一步按钮
-	}, { // 31 六道觉 -> 确认-选择试炼式神
-		// 已取色：确认-选择试炼式神
-		desc: [1280, 720,
-			[
-				[right, 1128, 577, 0x2c2c2c],
-				[right, 1186, 477, 0xceffff],
-				[right, 1170, 647, 0xc3dce6],
-				[right, 1126, 644, 0x376a92],
-				[right, 1233, 643, 0x425d82],
-			]
-		],
-		oper: [
-			[right, 1280, 720, 1130, 590, 1210, 660, 700], // 确认-选择试炼式神
-		],
-	}, { // 32 六道觉 -> 开启-上阵式神
-		// 已取色：开启-上阵式神
-		desc: [1280, 720,
-			[
-				[right, 1158, 576, 0x242424],
-				[right, 1185, 478, 0xceffff],
-				[right, 1184, 636, 0xc6e3eb],
-				[right, 1240, 635, 0x476893],
-				[right, 1156, 619, 0xcee4ec],
-			]
-		],
-		oper: [
-			[right, 1280, 720, 1140, 590, 1220, 660, 600], // 开启-上阵式神
-		],
-	}, { // 33 六道觉 -> 选择舞技
-		// 已取色：选择舞技界面
-		desc: [1280, 720,
-			[
-				[right, 1044, 378, 0x762a05],
-				[right, 1051, 559, 0x246aa0],
-				[right, 1011, 619, 0x173d6b],
-				[right, 1123, 619, 0x85b3b7],
-			]
-		],
-		oper: [
-			[right, 1280, 720, 1000, 610, 1090, 635, 400], // 选择舞技
-		],
-	}, { // 34 六道觉 -> 初始技能界面（固定选最右侧）
-		// 已取色：初始技能界面
-		desc: [1280, 720,
-			[
-				[left, 312, 186, 0xe0b8c1],
-				[right, 645, 199, 0x317bde],
-				[right, 960, 198, 0xba382d],
-				[left, 184, 672, 0x204157],
-			]
-		],
-	}, { // 35 初始技能_点击区域（仅坐标，不参与状态判定，由[34]固定选最右侧）
-		oper: [
-			[center, 1280, 720, 270, 555, 380, 590, 500], // 技能1
-			[center, 1280, 720, 585, 555, 700, 590, 500], // 技能2
-			[center, 1280, 720, 900, 555, 1010, 590, 500], // 技能3（固定选）
-		],
-	}, { // 36 已废弃：备战不再作为地图处理门禁
-	}, { // 37 六道觉 -> 唤息_暗（事件界面右下角，仅识别）
-		// 已取色：右下角暗色唤息
-		desc: [1280, 720,
-			[
-				[right, 1188, 619, 0x484848],
-				[right, 1156, 601, 0x555555],
-				[right, 1134, 606, 0x5d5d5d],
-				[right, 1149, 591, 0x484848],
-			]
-		],
-		notForCnt: true,
-	}, { // 38 六道觉 -> 鏖战_选择怪物（进入鏖战之屿后的敌人选择界面）
-		// 注意：这里不是主地图上的鏖战节点。
-		// 主地图节点由小地图结构推断后点击 operator[53] 的固定选择位，不再单独取锚点；
-		// 本状态对应进入鏖战后左右两个敌人的选择界面，点击右侧敌人 730,250-880,420。
-		// 已取色：标题「鏖战之屿」+ 左右敌人区域
-		desc: [1280, 720,
-			[
-				[left, 120, 40, 0xf7f2df],
-				[left, 116, 48, 0xf8f3e0],
-				[left, 138, 41, 0xf8f3e0],
-				[left, 150, 35, 0xf7f2df],
-				[center, 440, 264, 0x355080],
-				[right, 738, 415, 0x6976a0],
-				[left, 250, 40, 0x573514],
-			]
-		],
-		oper: [
-			[center, 1280, 720, 730, 250, 880, 420, 0], // 右侧怪物
-		],
-	}, { // 39 六道觉 -> 舞技强化_刷新（仅识别）
-		// 已取色：buff选择/舞技强化界面右下角刷新
-		desc: [1280, 720,
-			[
-				[right, 1216, 634, 0xa6fdff],
-				[right, 1240, 647, 0x2b4569],
-				[right, 1184, 647, 0x294366],
-				[right, 1205, 657, 0xecfafe],
-			]
-		],
-		notForCnt: true,
-	}, { // 40 六道觉 -> 舞技强化
-		// 已取色：舞技强化
-		desc: [1280, 720,
-			[
-				[right, 1093, 184, 0xfbf9e4],
-				[right, 1093, 176, 0xfaf8e7],
-				[right, 1103, 203, 0xf7f1cb],
-				[right, 1088, 483, 0x313a45],
-			]
-		],
-		oper: [
-			[center, 1280, 720, 1030, 555, 1150, 590, 350], // 舞技强化
-		],
-	}, { // 41 六道觉 -> 舞技强化-选择强化
-		// 已取色：舞技强化-选择强化界面
-		desc: [1280, 720,
-			[
-				[left, 280, 267, 0xffffea],
-				[right, 642, 276, 0xffffff],
-				[right, 1021, 255, 0x953e5b],
-				[left, 295, 462, 0x2a6b9e],
-				[right, 654, 454, 0x1e6297],
-				[right, 1010, 458, 0x22669b],
-			]
-		],
-		oper: [
-			[center, 1280, 720, 245, 505, 335, 535, 350], // 选择强化
-		],
-	}, { // 42 六道觉 -> 获得奖励界面
-		// 已取色：获得奖励
-		desc: [1280, 720,
-			[
-				[center, 571, 165, 0xfce7a1],
-				[center, 622, 146, 0xfbe392],
-				[right, 672, 168, 0xffe8a6],
-				[right, 720, 155, 0xfbe598],
-				[right, 751, 159, 0xfbe69e],
-			]
-		],
-		oper: [
-			[center, 1280, 720, 388, 552, 897, 704, 500], // 获得奖励-继续
-		],
-	}, { // 43 六道觉 -> 神秘_仿造
-		// 已取色：神秘_仿造
-		desc: [1280, 720,
-			[
-				[right, 1185, 622, 0x958858],
-				[right, 1221, 655, 0x968552],
-				[right, 1221, 631, 0x2b2920],
-				[right, 1171, 679, 0x1c1b1a],
-				[right, 1148, 657, 0x101011],
-			]
-		],
-		oper: [
-			[center, 1280, 720, 10, 20, 50, 65, 350], // 关闭/返回
-		],
-	}, { // 44 六道觉 -> 唤息_亮/金
-		// 已取色：右下角亮色唤息
-		desc: [1280, 720,
-			[
-				[right, 1188, 619, 0x58452e],
-				[right, 1156, 601, 0x69522e],
-				[right, 1134, 606, 0x735b31],
-				[right, 1149, 591, 0x59452d],
-			]
-		],
-		notForCnt: true,
-	}, { // 45 六道觉 -> 绽放_离开
-		// 已取色：绽放之屿，右下角直接离开
-		desc: [1280, 720,
-			[
-				[right, 1201, 657, 0xecdaba],
-				[right, 1180, 658, 0xe9d4b1],
-				[right, 1183, 629, 0x0e0b08],
-				[right, 1182, 688, 0x282016],
-				[right, 1073, 693, 0x7f99b7],
-			]
-		],
-		oper: [
-			[center, 1280, 720, 1160, 635, 1205, 680, 1000], // 绽放-离开
-		],
-	}, { // 46 六道觉 -> 混沌_精英
-		// 只用左上角「混沌之屿」标题的 5 个取色点，不再绑定精英立绘/名字条。
-		// 混沌秘宝由 operator[47] 先判断；47 判断不到时才按精英处理。
-		desc: [1280, 720,
-			[
-				[left, 148, 29, 0xf8f3e0],
-				[left, 159, 51, 0xf8f3e0],
-				[left, 186, 50, 0xf8f3e0],
-				[left, 211, 38, 0xf7f2df],
-				[left, 128, 52, 0xf8f3e0],
-			]
-		],
-		oper: [
-			[center, 1280, 720, 625, 230, 760, 380, 500], // 混沌-精英
-		],
-	}, { // 47 六道觉 -> 混沌_幸运秘宝
-		// 已取色：混沌之屿-幸运秘宝
-		desc: [1280, 720,
-			[
-				[left, 128, 52, 0xf8f3e0],
-				[left, 159, 51, 0xf8f3e0],
-				[left, 184, 49, 0xf8f3e0],
-				[left, 203, 43, 0xf8f3e0],
-				// 只用右下角「离开」按钮做秘宝专属点。宝匣/横幅会随开箱动画变化，
-				// 用其取色会在 46 反复点宝匣时永远匹配不到；离开按钮是静态的，
-				// 且精英界面没有这个按钮（精英对应点为蓝色背景，diff 100+）。
-				// 离开按钮上取 3 个点：外圈暗部、内圈金边、白色出口箭头。
-				[right, 1168, 633, 0x090704],
-				[right, 1185, 675, 0xdbbf92],
-				[right, 1200, 658, 0xead5b4],
-			]
-		],
-		oper: [
-			[center, 1280, 720, 1160, 635, 1200, 685, 1000], // 混沌-幸运秘宝
-		],
-	}, { // 48 已废弃：只剩两个舞技选择
-		// 力量满后不会再走这个界面；保留空位避免后续索引变化
-	}, { // 49 六道觉 -> 舞技强化_刷新_暗（刷新次数用完）
-		// 已取色：暗色刷新
-		desc: [1280, 720,
-			[
-				[right, 1205, 658, 0xf7f7f7],
-				[right, 1217, 634, 0xe3e3e3],
-				[right, 1184, 648, 0x3f3f40],
-				[right, 1240, 647, 0x414141],
-			]
-		],
-		notForCnt: true,
-	}, { // 50 六道觉 -> 首领挑战
-		// 已取色：首领挑战界面
-		desc: [1280, 720,
-			[
-				[right, 891, 642, 0x175c8f],
-				[right, 1146, 647, 0xcde7ef],
-				[right, 1117, 592, 0x2f2f2f],
-				[right, 1162, 637, 0x2c2c2c],
-				[right, 1187, 603, 0xb1b9ce],
-			]
-		],
-		oper: [
-			[center, 1280, 720, 1120, 600, 1200, 675, 1500], // 首领挑战
-		],
-	}, { // 51 六道觉 -> 万象赐福使用
-		// 已取色：万象赐福使用界面
-		desc: [1280, 720,
-			[
-				[center, 616, 336, 0x8b62a3],
-				[right, 653, 336, 0x8d64a5],
-				[center, 631, 349, 0x5a4273],
-				[right, 662, 376, 0xf8e627],
-				[right, 727, 443, 0xf3b25e],
-			]
-		],
-		oper: [
-			[center, 1280, 720, 670, 425, 783, 463, 1000], // 使用万象赐福
-		],
-	}, { // 52 六道觉 -> 商店_刷新（仅识别）
-		// 已取色：商店刷新按钮
-		desc: [1280, 720,
-			[
-				[center, 611, 632, 0xfff9df],
-				[center, 622, 608, 0x79b6d3],
-				[center, 620, 623, 0x273e62],
-				[center, 611, 614, 0x24395a],
-			]
-		],
-		notForCnt: true,
-	}, { // 53 六道觉 -> 主地图固定选择位（只按小地图推断的数量/顺序点击，不做状态判定）
-		// 下标与 d6jueMap.ts 的 D6_MAP_SLOTS 严格一致：
-		// 0=单个(中)；1=两个(左)；2=两个(右)；3=三个(左)；4=三个(中)；5=三个(右)
-		// 6~9=四个(从左到右)。
-		// 实测：点岛屿平台/水面无效，必须点岛屿上方的竖排横幅/名称。以下区域都对准横幅。
-		oper: [
-			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[0], 500], // single
-			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[1], 500], // two-left（实机横幅在 x≈390~415，原中心偏左）
-			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[2], 500], // two-right
-			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[3], 500], // three-left
-			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[4], 500], // three-center
-			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[5], 500], // three-right
-			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[6], 500], // four-1
-			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[7], 500], // four-2
-			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[8], 500], // four-3
-			[center, 1280, 720, ...D6_MAP_SLOT_DEV_RECTS[9], 500], // four-4
-		],
-	}, { // 54 六道觉 -> 唤息_确认框（仅在 d6HuanxiPending 期间主动确认，减少依赖外部 func 2 并压缩等待）
-		desc: '退出结算_取消确认框',
-		oper: [
-			[center, 1280, 720, 680, 411, 838, 452, 200],
-		],
-		notForCnt: true,
 	}];
 	operatorFunc(thisScript: Script, thisOperator: IFuncOperator[]): boolean {
 		// Rhino 首次调用 analyzeD6Map 才编译其中的热点循环，导致进图后第一次识别明显变慢。
@@ -1053,10 +895,11 @@ export class Func323 implements IFuncOrigin {
 		}
 		const thisConf = thisScript.scheme.config['323'] || {};
 		const g = thisScript.global;
+		const debugMode = isD6DebugMode();
 		const mapSettleMs = D6_MAP_SETTLE_MS;
-		const mapRetryMs = Math.max(500, parseInt(String(thisConf.mapRetryMs === undefined ? D6_MAP_SIG_WAIT : thisConf.mapRetryMs), 10) || D6_MAP_SIG_WAIT);
-		// 点击后多久没有离图/岛屿证据才允许重试（固定使用内部调优常量，不受界面配置覆盖）。
-		const stepRetryMs = Math.max(D6_STEP_RETRY_MS, mapRetryMs);
+		const mapRetryMs = D6_MAP_SIG_WAIT;
+		// 点击后多久没有离图/岛屿证据才允许重试（固定使用内部调优常量）。
+		const stepRetryMs = D6_STEP_RETRY_MS;
 		const now = () => new Date().getTime();
 
 		// 首领战超过 60 秒仍未结算，停止脚本，避免失败界面未识别时无限挂机
@@ -1073,24 +916,23 @@ export class Func323 implements IFuncOrigin {
 			thisScript.rerun('__停止脚本__');
 			return true;
 		}
-		const perfLogEnabled = !!thisConf.perfLog;
 		const perfLog = (name: string, ms: number, detail = '', alwaysFile = false) => {
+			if (!debugMode) return;
 			const line = `[d6jue-perf] ${name} ${ms}ms${detail ? ' ' + detail : ''}`;
-			if (perfLogEnabled || ms >= 120) console.log(line);
-			if (alwaysFile || perfLogEnabled || ms >= 120) perfLogLine(line);
+			if (ms >= 120) console.log(line);
+			if (alwaysFile || ms >= 120) perfLogLine(line);
 		};
 		if (!mapSwitchLogged) {
 			const orderText = (priority: { [key: string]: number }) => Object.keys(priority)
 				.sort((a, b) => priority[b] - priority[a])
 				.join(' > ');
-			console.log(`[d6jue-map] switch=${!!thisConf.logMapNodes}`);
 			console.log('[d6jue-map] 识别方式=图标模板+行列结构推断，主地图按可达节点顺序点固定选择位');
 			console.log(`[d6jue-map] 岛屿顺序(未通关): ${orderText(MAP_PRIORITY)}`);
 			console.log(`[d6jue-map] 岛屿顺序(通关后): ${orderText(MAP_PRIORITY_CLEARED)}`);
 			mapSwitchLogged = true;
 		}
 
-		// 只使用已取色的状态，未填 desc 的 TODO 占位不会命中
+		// 过滤没有 desc 的 operator（如仅含点击坐标的 OP.MAP_SLOTS）
 		const isReady = (item?: IFuncOperator): item is IFuncOperator => !!(item && item.desc && item.desc.length);
 
 		// 步数状态机：纯逻辑在 d6jueStepTracker.ts，这里只负责配置和同步到 g。
@@ -1143,7 +985,7 @@ export class Func323 implements IFuncOrigin {
 			const t0 = now();
 			const matched = !!thisScript.oper({ id: 323, name, operator }, retest);
 			const dt = now() - t0;
-			if (perfLogEnabled || dt >= 120) perfLog(`oper ${name}`, dt, `matched=${matched} retest=${retest}`);
+			if (debugMode && dt >= 120) perfLog(`oper ${name}`, dt, `matched=${matched} retest=${retest}`);
 			if (matched && stepTracker && stepTracker.pending) {
 				for (let i = 0; i < indexes.length; i++) {
 					if (!D6_STEP_MAP_OPERATORS[indexes[i]]) {
@@ -1215,9 +1057,9 @@ export class Func323 implements IFuncOrigin {
 
 		// 选择锁：buff/舞技界面已经切走就解除；混沌精英确认换卡稳定可提前解除；超时兜底，避免卡死
 		if (buffSelectLockActive) {
-			const selectOps = [39, 41, 49].map(index => thisOperator[index]).filter(isReady);
-			const buffCardOps = [39, 49].map(index => thisOperator[index]).filter(isReady);
-			const skillModalOps = [41].map(index => thisOperator[index]).filter(isReady);
+			const selectOps = [OP.BUFF_REFRESH, OP.SKILL_UPGRADE_PICK, OP.BUFF_REFRESH_DARK].map(index => thisOperator[index]).filter(isReady);
+			const buffCardOps = [OP.BUFF_REFRESH, OP.BUFF_REFRESH_DARK].map(index => thisOperator[index]).filter(isReady);
+			const skillModalOps = [OP.SKILL_UPGRADE_PICK].map(index => thisOperator[index]).filter(isReady);
 			const checkStillSelecting = () => selectOps.length > 0 && thisScript.desc({
 				id: 323,
 				name: '六道觉_选择界面锁检测',
@@ -1314,22 +1156,16 @@ export class Func323 implements IFuncOrigin {
 			d6IslandBuffGainDone = true;
 			addWanxiangling(D6_ISLAND_BUFF_GAIN, source);
 		};
-		// 刷新费用不盲目扣：OCR 可用时先挂起，等下一次 OCR 读数校验；
-		// OCR 关闭时没有校验手段，退回点击即扣。
+		// 刷新费用不盲目扣：先挂起，等下一次 OCR 读数校验。
 		const beginPendingRefreshCost = (cost: number, source: string, walletBefore: number) => {
-			if (thisConf.walletOcr === false) {
-				g.d6jueWanxiangling = Math.max(0, walletBefore - cost);
-				return;
-			}
 			d6PendingRefreshCost = cost;
 			d6PendingRefreshSource = source;
 			d6PendingRefreshWalletBefore = walletBefore;
 			d6PendingRefreshTime = now();
 		};
-			// OCR 用于校验/校准每岛固定收益计算：读到值后和计算值比较，差值合理才同步。
-			// 返回 true 表示本次 OCR 已校验通过一笔挂起的刷新扣费（costVerified=1）。
+		// OCR 用于校验/校准每岛固定收益计算：读到值后和计算值比较，差值合理才同步。
+		// 返回 true 表示本次 OCR 已校验通过一笔挂起的刷新扣费（costVerified=1）。
 		const readWanxianglingOcr = (tag: string): boolean => {
-			if (thisConf.walletOcr === false) return false;
 			// 等待卡面动画期间已经并行跑过 buff OCR，调用方紧接着的那次直接跳过。
 			// 只跳过一次：消费后立刻清零，避免影响下一次刷新的费用校验。
 			// 若当前有待校验的刷新扣费（d6PendingRefreshCost > 0），不跳过也不受 1200ms 节流限制，
@@ -1608,7 +1444,7 @@ export class Func323 implements IFuncOrigin {
 				cost: D6_BUFF_REFRESH_COST,
 				walletBefore: before,
 				wallet: g.d6jueWanxiangling || 0,
-				costPending: thisConf.walletOcr !== false ? 1 : 0,
+				costPending: 1,
 				lei: g.d6jueLeiLevel || 0,
 				power: g.d6juePowerLevel || 0,
 				step: g.d6jueStepLeft || 0,
@@ -1632,22 +1468,9 @@ export class Func323 implements IFuncOrigin {
 			d6BuffScreenLastSeen = now();
 		};
 
-		// buff 黑名单：默认永不选择；所有名称都需在 multiFindColors.ts 配置 六道觉_buff_<名称>
-		// 妖力化身/攻击加成无论旧配置是否写了，都强制加入黑名单
-		const buffBlacklist = Array.from(new Set([
-			...String(thisConf.buffBlacklist || DEFAULT_BUFF_BLACKLIST)
-				.split(/[,，]/)
-				.map(item => item.trim())
-				.filter(item => item.length > 0),
-			CAUTION_BUFF_YAO,
-			CAUTION_BUFF_ATTACK,
-			CAUTION_BUFF_BEISHUI,
-		]));
-		const knownBuffNames = Array.from(new Set([...buffBlacklist, ...KNOWN_BUFF_NAMES]));
-
 		// 只提示一次缺失的图标配置
 		if (!buffPatternWarned) {
-			const missing = knownBuffNames.filter(name => {
+			const missing = D6_KNOWN_BUFF_NAMES.filter(name => {
 				if (name.includes('轰雷')) return false;
 				const conf = thisScript.multiFindColors[buffColorKey(name)];
 				return !conf || !conf.desc || conf.desc.length === 0;
@@ -1668,9 +1491,7 @@ export class Func323 implements IFuncOrigin {
 		const cardIndexByX = (x: number): number => x < buffCardSplit1 ? 0 : x < buffCardSplit2 ? 1 : 2;
 
 		const isBuffSelectable = (name: string): boolean => {
-			if (buffBlacklist.includes(name)) return false;
-			if (name === CAUTION_BUFF_YAO && (g.d6jueYaoLevel || 0) >= 1) return false;
-			if (name === CAUTION_BUFF_BEISHUI && (g.d6jueBeishuiLevel || 0) >= 1) return false;
+			if (D6_BUFF_BLACKLIST.includes(name)) return false;
 			if (name === CAUTION_BUFF_CHIFEN && (g.d6jueLeiLevel || 0) < 1) return false;
 			if (name === '六道轰雷' && (g.d6jueLeiLevel || 0) >= 3) return false;
 			return true;
@@ -1689,8 +1510,8 @@ export class Func323 implements IFuncOrigin {
 			if (lei) {
 				cards[cardIndexByX(lei.x)].name = '六道轰雷';
 			}
-			for (let i = 0; i < knownBuffNames.length; i++) {
-				const name = knownBuffNames[i];
+			for (let i = 0; i < D6_KNOWN_BUFF_NAMES.length; i++) {
+				const name = D6_KNOWN_BUFF_NAMES[i];
 				if (name.includes('轰雷')) continue;
 				const key = buffColorKey(name);
 				const conf = thisScript.multiFindColors[key];
@@ -1703,7 +1524,7 @@ export class Func323 implements IFuncOrigin {
 				}
 			}
 			const dt = now() - t0;
-			if (perfLogEnabled || dt >= 100) {
+			if (debugMode && dt >= 100) {
 				perfLog('buff.scan', dt, `findMultiColor=${scans} cards=${cards.map(c => c.name || '?').join(',')}`, true);
 			}
 			d6jueAnalysisLog('buff.scan', {
@@ -1726,43 +1547,6 @@ export class Func323 implements IFuncOrigin {
 			}
 			const button = buffButtons[index];
 			if (!button) return false;
-			// 未知卡截图只用于补取色，默认关闭（buffShot）。开启时也先截/裁好图，
-			// 点击后再保存：captureScreen/images.save 实测约 260ms，不能挡在点击前。
-			let shotImg: any = null;
-			let shotPath = '';
-			let shotCropped = false;
-			if (!name && thisConf.buffShot === true) {
-				try {
-					const dir = context.getExternalFilesDir(null);
-					if (dir) {
-						const img = images.captureScreen();
-						if (img) {
-							const helper = thisScript.helperBridge.helper;
-							const sr = helper.GetPoint(D6_BUFF_SHOT_DEV_REGION.x0, D6_BUFF_SHOT_DEV_REGION.y0, left);
-							const er = helper.GetPoint(D6_BUFF_SHOT_DEV_REGION.x1, D6_BUFF_SHOT_DEV_REGION.y1, left);
-							const w = er.x - sr.x;
-							const h = er.y - sr.y;
-							let clipped: any = null;
-							if (typeof images.clip === 'function' && w > 0 && h > 0) {
-								clipped = images.clip(img, sr.x, sr.y, w, h);
-							}
-							if (clipped) {
-								img.recycle();
-								shotImg = clipped;
-								shotCropped = true;
-							} else {
-								shotImg = img;
-							}
-							shotPath = `${dir.getAbsolutePath()}/d6jue_buff_${g.d6jueTimes || 0}_${g.d6jueStepLeft || 0}_${now()}.png`;
-						}
-					}
-				} catch (e) {
-					// 截图失败不影响选卡
-					shotImg = null;
-					shotPath = '';
-					shotCropped = false;
-				}
-			}
 			// 锁从真实点击时刻开始计，不能等 regionClick 内部的 500ms 点击后 sleep 结束；
 			// 附带点击前卡面采样，便于混沌精英换出第二组卡后提前解锁。
 			const pickSample = readBuffCardsSample();
@@ -1772,41 +1556,12 @@ export class Func323 implements IFuncOrigin {
 			thisScript.regionClick(thisScript.helperBridge.regionClickTrans([
 				[left, 1280, 720, button[0], button[1], button[2], button[3], 500],
 			]));
-			// 截图放到点击后保存，不占选卡前的时间
-			if (shotImg) {
-				try {
-					images.save(shotImg, shotPath);
-					console.log(`[d6jue-buff] 未知卡截图: ${shotPath}`);
-					d6jueAnalysisLog('buff.screenshot', {
-						path: shotPath,
-						step: g.d6jueStepLeft || 0,
-						pos: index + 1,
-						lei: g.d6jueLeiLevel || 0,
-						power: g.d6juePowerLevel || 0,
-						crop: shotCropped ? 1 : 0,
-					});
-				} catch (e) {
-					// 截图失败不影响选卡
-				} finally {
-					try {
-						shotImg.recycle();
-					} catch (e) {
-						// 忽略回收异常
-					}
-					shotImg = null;
-				}
-			}
 			// 选卡后界面会关闭或换下一组卡（混沌精英第二轮），下次命中按新界面重新等入场
 			resetBuffScreenState();
 			// 每座岛选 buff +100 只计一次；混沌精英第 2/2 轮会在 buff.continuation 先回退第 1 轮预加
 			addBuffGainOnce(`选buff:${name || '未知'}`);
 			if (name === '六道轰雷') {
 				g.d6jueLeiLevel = (g.d6jueLeiLevel || 0) + 1;
-			} else {
-				if (name === CAUTION_BUFF_YAO) g.d6jueYaoLevel = (g.d6jueYaoLevel || 0) + 1;
-				else if (name === CAUTION_BUFF_BEISHUI) g.d6jueBeishuiLevel = (g.d6jueBeishuiLevel || 0) + 1;
-				else if (name === CAUTION_BUFF_CHIFEN) g.d6jueChifenLevel = (g.d6jueChifenLevel || 0) + 1;
-				g.d6jueOtherBuffSelected = true;
 			}
 			console.log(`[d6jue-buff] 选择buff: ${name || '未知'}，位置=${index + 1}`);
 			d6jueAnalysisLog('buff.pick', {
@@ -1854,7 +1609,6 @@ export class Func323 implements IFuncOrigin {
 			resetBuffScreenState();
 			addBuffGainOnce(`死局选buff:${name || '未知'}`);
 			g.d6jueCantClear = true;
-			g.d6jueOtherBuffSelected = true;
 			console.log(`[d6jue-buff] 死局强制选择 ${name || '未知'}（位置=${index + 1}），标记无法通关=T`);
 			d6jueAnalysisLog('buff.force', {
 				name: name || 'unknown',
@@ -1896,10 +1650,6 @@ export class Func323 implements IFuncOrigin {
 			const pick = candidates[Math.floor(Math.random() * candidates.length)];
 			return clickBuffCard(pick.index, pick.name);
 		};
-
-		const coreBuff = String(thisConf.coreBuff || '').trim();
-		const coreBuffMax = Math.max(0, parseInt(String(thisConf.coreBuffMax || '0'), 10) || 0);
-		if (!g.d6jueCoreBuff) g.d6jueCoreBuff = 0;
 
 		// 右上角小地图结构识别 + 自动选择点击
 		// 每次均基于当前新帧的 12×12 快速像素采样（约 1~2ms）命中哈希缓存，
@@ -1948,22 +1698,24 @@ export class Func323 implements IFuncOrigin {
 								nodes: detail,
 								pin: state.pin ? `${state.pin.x},${state.pin.y}` : '',
 							});
-							try {
-								const shot = images.captureScreen();
-								const dir = context.getExternalFilesDir(null);
-								if (dir) {
-									const shotPath = `${dir.getAbsolutePath()}/d6jue_conflict_${now()}.png`;
-									images.save(shot, shotPath);
-									d6jueAnalysisLog('map.type_conflict_shot', { path: shotPath });
-								}
-								// 截图是整屏 bitmap，保存后必须回收，避免反复冲突时堆内存
+							if (debugMode) {
 								try {
-									shot.recycle();
+									const shot = images.captureScreen();
+									const dir = context.getExternalFilesDir(null);
+									if (dir) {
+										const shotPath = `${dir.getAbsolutePath()}/d6jue_conflict_${now()}.png`;
+										images.save(shot, shotPath);
+										d6jueAnalysisLog('map.type_conflict_shot', { path: shotPath });
+									}
+									// 截图是整屏 bitmap，保存后必须回收，避免反复冲突时堆内存
+									try {
+										shot.recycle();
+									} catch (e) {
+										// 忽略回收异常
+									}
 								} catch (e) {
-									// 忽略回收异常
+									// 截图失败不影响主流程
 								}
-							} catch (e) {
-								// 截图失败不影响主流程
 							}
 						}
 					}
@@ -2234,7 +1986,7 @@ export class Func323 implements IFuncOrigin {
 			// 点唤息后约 200~350ms 弹出确认框：本轮直接短轮询确认，省掉回主循环等 func 2 的 ~0.7s。
 			for (let confirmTry = 0; confirmTry < 4; confirmTry++) {
 				thisScript.keepScreen();
-				if (oper([54], '六道觉_唤息_确认')) break;
+				if (oper([OP.HUANXI_CONFIRM], '六道觉_唤息_确认')) break;
 				if (confirmTry < 3) sleep(100);
 			}
 			console.log(`[d6jue-map] ${reason}，唤息-${D6_HUANXI_COST}（等待地图刷新确认，当前=${before}）`);
@@ -2293,8 +2045,8 @@ export class Func323 implements IFuncOrigin {
 			if (inPostReward && postRewardAge0 < D6_POST_REWARD_MAP_READ_MIN_MS) {
 				sleep(D6_POST_REWARD_MAP_READ_MIN_MS - postRewardAge0);
 				thisScript.keepScreen();
-				const stillDarkPre = oper([37], '六道觉_唤息_暗');
-				const stillBrightPre = !stillDarkPre && oper([44], '六道觉_唤息_亮');
+				const stillDarkPre = oper([OP.HUANXI_DARK], '六道觉_唤息_暗');
+				const stillBrightPre = !stillDarkPre && oper([OP.HUANXI_BRIGHT], '六道觉_唤息_亮');
 				if (!stillDarkPre && !stillBrightPre) {
 					g.d6jueMapLogTime = 0;
 					return false;
@@ -2313,15 +2065,13 @@ export class Func323 implements IFuncOrigin {
 				time = now();
 				state = readMapState();
 				if (!state) {
-					const invalid = getStepTracker().observeMap({
+					getStepTracker().observeMap({
 						time,
 						rowKey: '',
 						valid: false,
 						mapHash: lastMapHash,
 					});
 					syncStepState();
-					if (invalid.pending && thisConf.logMapNodes) console.log('[d6jue-map] 小地图不可用，等待步数确认');
-					if (thisConf.logMapNodes) console.log('[d6jue-map] 未识别到小地图节点，跳过');
 					return false;
 				}
 				// 游戏规则：孔雀国「绽放」只在第 5/10/15 关以单节点行出现，绝不会与其它节点同行。
@@ -2422,7 +2172,6 @@ export class Func323 implements IFuncOrigin {
 								gap: mapUpdate.elapsed,
 								reason: 'weak_counter_unchanged',
 							});
-							if (thisConf.logMapNodes) console.log('[d6jue-map] weak_row 被计数器否决，按点击失败重试');
 						}
 					} else {
 						d6jueAnalysisLog('step.alert', {
@@ -2441,7 +2190,6 @@ export class Func323 implements IFuncOrigin {
 						left: mapUpdate.left,
 						nodes: state.reachable.map(n => n.type).join('/'),
 					});
-					if (thisConf.logMapNodes) console.log(`[d6jue-map] 步数告警: ${mapUpdate.alerts.join(',')}`);
 				}
 				if (mapUpdate.confirmed && !weakReverted) {
 					// 新行确认后强制重新读一次计数器，避免把 pending 期间读到的旧值缓存到新行。
@@ -2499,13 +2247,12 @@ export class Func323 implements IFuncOrigin {
 							lei: g.d6jueLeiLevel || 0,
 							power: g.d6juePowerLevel || 0,
 						});
-						thisScript.myToast('六道觉：小地图出现未知岛屿，暂不点击主地图（记录见 d6jue_unknown.log）', 3000);
+						thisScript.myToast(debugMode ? '六道觉：小地图出现未知岛屿，暂不点击主地图（记录见 d6jue_unknown.log）' : '六道觉：小地图出现未知岛屿，暂不点击主地图', 3000);
 						unknownMapNotified = true;
 					}
 					return false;
 				}
 				if (typeConflict) {
-					if (thisConf.logMapNodes) console.log('[d6jue-map] 神秘/绽放同屏冲突，等待下一帧');
 					return false;
 				}
 				unknownMapNotified = false;
@@ -2541,14 +2288,11 @@ export class Func323 implements IFuncOrigin {
 							}
 						}
 					}
-					if (thisConf.logMapNodes) {
-						console.log(`[d6jue-map] ${needReturnSettle ? '归图' : '地图'}稳定等待 ${wait}ms`);
-					}
 					sleep(wait);
 					if (settleTry === 0) {
 						thisScript.keepScreen();
-						const stillDark = oper([37], '六道觉_唤息_暗');
-						const stillBright = !stillDark && oper([44], '六道觉_唤息_亮');
+						const stillDark = oper([OP.HUANXI_DARK], '六道觉_唤息_暗');
+						const stillBright = !stillDark && oper([OP.HUANXI_BRIGHT], '六道觉_唤息_亮');
 						if (stillDark || stillBright) {
 							huanxiBright = stillBright;
 							continue;
@@ -2557,16 +2301,8 @@ export class Func323 implements IFuncOrigin {
 					g.d6jueMapLogTime = 0;
 					return false;
 				}
-				if (getStepTracker().pending) {
-					if (thisConf.logMapNodes) {
-						console.log(`[d6jue-map] 等待步数确认（${mapUpdate.reason}${mapUpdate.committed ? ',已离图' : ''}，${mapUpdate.elapsed}ms）`);
-					}
-					return false;
-				}
-				if (!mapUpdate.settled) {
-					if (thisConf.logMapNodes) console.log('[d6jue-map] 等待地图稳定');
-					return false;
-				}
+				if (getStepTracker().pending) return false;
+				if (!mapUpdate.settled) return false;
 				break;
 			}
 			if (!state) return false;
@@ -2596,13 +2332,11 @@ export class Func323 implements IFuncOrigin {
 						});
 					} else {
 						// 偏低读数需要第二次确认；先不点击，避免用旧 stepLeft 给下一座岛分配 key。
-						if (thisConf.logMapNodes) console.log('[d6jue-map] 计数器偏低待确认，暂缓点击');
 						return false;
 					}
 				}
 				if (!counterRead.result && !getStepTracker().initialized && !counterRead.exhausted) {
 					// 中途接手：还不知道真实剩余步数，等计数器连续两次一致再点。
-					if (thisConf.logMapNodes) console.log('[d6jue-map] 等待计数器初始化步数');
 					return false;
 				}
 			}
@@ -2622,18 +2356,7 @@ export class Func323 implements IFuncOrigin {
 				: (clearMet ? MAP_PRIORITY_CLEARED : MAP_PRIORITY);
 			const choice = pickD6MapChoice(state, priority);
 
-			if (thisConf.logMapNodes) {
-				const nodeText = state.nodes.length > 0
-					? state.nodes.map(n => `${d6MapColName(n.col)}${n.type}${n.bright ? '亮' : '暗'}(ncc${n.score.toFixed(2)}${n.shapeScore ? `/形${n.shapeScore.toFixed(2)}` : ''},亮${n.meanLum.toFixed(0)},金${n.gold})`).join(' | ')
-					: '未识别到';
-				const reachText = state.reachable.map(n => `${n.type}@${n.x}`).join(' > ') || '无';
-				const pinText = state.pin ? `${state.pin.x},${state.pin.y}` : '未识别';
-				console.log(`[d6jue-map] 定位针=${pinText} 可选行y=${state.nextRowY} 节点: ${nodeText}`);
-				console.log(`[d6jue-map] 可选(亮色): ${reachText}${choice ? `，目标=${choice.target.type}@${choice.target.x},${choice.target.y}，选择位=${choice.slot}(${choice.index + 1}/${choice.count})` : ''}`);
-			}
-
 			if (state.nodes.length === 0) {
-				if (thisConf.logMapNodes) console.log('[d6jue-map] 未识别到小地图节点，等待下一轮');
 				return false;
 			}
 
@@ -2678,14 +2401,12 @@ export class Func323 implements IFuncOrigin {
 			}
 
 			if (!choice) {
-				if (thisConf.logMapNodes) console.log('[d6jue-map] 没有可达节点，跳过');
 				return false;
 			}
 
 			// 唤息还没生效时不要点旧行：否则会白白消耗一步，新行随后才刷出来。
 			if (doClick && d6HuanxiPending) {
 				if (huanxiSig === d6HuanxiPendingSig) {
-					if (thisConf.logMapNodes) console.log('[d6jue-map] 等待唤息刷新地图，暂缓点击');
 					return false;
 				}
 				// 即将点击新行，离开地图前完成扣款（稳定性检查可能赶不上这次点击）
@@ -2694,8 +2415,8 @@ export class Func323 implements IFuncOrigin {
 
 			if (doClick && getStepTracker().phase === 'map' && now() - (g.d6jueLastMapSigTime || 0) >= mapRetryMs) {
 				const slotIndex = d6MapSlotIndex(choice.slot);
-				const slotOper = slotIndex >= 0 && thisOperator[53] && thisOperator[53].oper
-					? thisOperator[53].oper[slotIndex]
+				const slotOper = slotIndex >= 0 && thisOperator[OP.MAP_SLOTS] && thisOperator[OP.MAP_SLOTS].oper
+					? thisOperator[OP.MAP_SLOTS].oper[slotIndex]
 					: null;
 				if (!slotOper) {
 					console.log(`[d6jue-map] 未找到主地图选择位: ${choice.slot}`);
@@ -2915,15 +2636,15 @@ export class Func323 implements IFuncOrigin {
 		// 唤息确认期间优先处理确认弹窗与地图轮询：跳过前面的界面识别链，少绕 0.3~0.7s，
 		// 让新行更早被看到、扣款确认更早完成。正常地图流程不受影响。
 		if (d6HuanxiPending) {
-			if (oper([54], '六道觉_唤息_确认')) return true;
-			const pendingDark = oper([37], '六道觉_唤息_暗');
-			const pendingBright = !pendingDark && oper([44], '六道觉_唤息_亮');
+			if (oper([OP.HUANXI_CONFIRM], '六道觉_唤息_确认')) return true;
+			const pendingDark = oper([OP.HUANXI_DARK], '六道觉_唤息_暗');
+			const pendingBright = !pendingDark && oper([OP.HUANXI_BRIGHT], '六道觉_唤息_亮');
 			if (pendingDark || pendingBright) {
 				return handleMapNodes(true, pendingBright);
 			}
 		}
 
-		// 只有脚本点击「开启-六道觉」后才允许执行本局操作
+		// 重置本局统计与状态
 		const startRun = () => {
 			// 从点「开启」到本局出现第一个步数进展之间，都属于同一次开局：
 			// 过渡帧/点击重试再次命中「开启」时只点击、不重复统计。
@@ -2942,7 +2663,6 @@ export class Func323 implements IFuncOrigin {
 			startRepeatIgnored = false;
 			d6BattleFailHandled = false;
 			g.d6jueStarted = true;
-			g.d6jueStartPrompted = false;
 			unknownMapNotified = false;
 			d6UnknownFirstTime = 0;
 			d6UnknownLastTime = 0;
@@ -2955,13 +2675,8 @@ export class Func323 implements IFuncOrigin {
 			d6BuffScreenLastSeen = 0;
 			d6BuffWalletOcrSkipUntil = 0;
 			d6BuffLastPickTime = 0;
-			g.d6jueCoreBuff = 0;
 			g.d6jueLeiLevel = 0;
-			g.d6jueOtherBuffSelected = false;
 			g.d6juePowerLevel = 0;
-			g.d6jueYaoLevel = 0;
-			g.d6jueBeishuiLevel = 0;
-			g.d6jueChifenLevel = 0;
 			g.d6jueCantClear = false;
 			g.d6jueShopRefresh = 0;
 			g.d6jueShopBuyPending = false;
@@ -3019,90 +2734,47 @@ export class Func323 implements IFuncOrigin {
 				lei: 0,
 				power: 0,
 			});
-			console.log(`[d6jue-analysis] 记录文件: ${d6jueAnalysisPath()}`);
-		};
-		const markNotStarted = () => {
-			g.d6jueStarted = false;
+			if (debugMode) console.log(`[d6jue-analysis] 记录文件: ${d6jueAnalysisPath()}`);
 		};
 
-		// ---- 入口流程（未开启也允许，用于进入副本）----
-		if (oper([0], '六道觉_进入六道之门', 500)) {
-			markNotStarted();
-			return true;
-		}
-		if (oper([1], '六道觉_选择觉', 500)) {
-			markNotStarted();
-			return true;
-		}
-		if (oper([2], '六道觉_进入副本', 500)) {
-			markNotStarted();
-			return true;
-		}
-
-		// ---- 暂时取消“必须由脚本点击开启”的限制 ----
-		// TODO(六道觉): 后续把 REQUIRE_SCRIPT_START 改回 true，恢复未开启时的提示和拦截
-		if (REQUIRE_SCRIPT_START && !g.d6jueStarted) {
-			// 如果已经在开局流程（确认式神/上阵/选舞技/初始技能），说明不是脚本点的开启，不再接管
-			const openingFlow = thisScript.desc({
-				id: 323,
-				name: '六道觉_开局流程检测',
-				operator: [thisOperator[31], thisOperator[32], thisOperator[33], thisOperator[34]],
-			}, thisScript.scheme.commonConfig);
-			if (!openingFlow && oper([3], '六道觉_开启-六道觉')) {
-				startRun();
-				return true;
-			}
-			if (!g.d6jueStartPrompted) {
-				thisScript.myToast('六道觉未开启：请先进入六道之门·觉并由脚本点击「开启」', 3000);
-				console.log('[d6jue] 未点击开启，跳过六道觉操作');
-				g.d6jueStartPrompted = true;
-			}
-			return false;
-		}
-
-		// ---- 已开启：确认-选择试炼式神 / 开启-上阵式神（放在开启前，避免同时命中时重复计数）----
+		// ---- 开局流程：确认-选择试炼式神 / 开启-上阵式神（放在开启前，避免同时命中时重复计数）----
 		// 弹窗滑入动画期按钮提前变亮（实测 +2.27s 抢点易被吞、+2.48s 稳定生效），加 300ms retest 一次命中。
-		if (oper([31], '六道觉_确认-选择试炼式神', 300)) return true;
-		if (oper([32], '六道觉_开启-上阵式神')) return true;
+		if (oper([OP.CONFIRM_SHIKIGAMI], '六道觉_确认-选择试炼式神', 300)) return true;
+		if (oper([OP.START_DEPLOY], '六道觉_开启-上阵式神')) return true;
 
-		// ---- 兼容已开启状态下再次点到「开启」：重置本局统计 ----
+		// ---- 开启-六道觉：重置本局统计 ----
 		// 是否重置由 startRun 判断：开局后到第一个步数进展之间重复命中只算一次。
-		if (oper([3], '六道觉_开启-六道觉')) {
+		if (oper([OP.START], '六道觉_开启-六道觉')) {
 			startRun();
 			return true;
 		}
 
 		// ---- 选择舞技 ----
-		if (oper([33], '六道觉_选择舞技')) return true;
+		if (oper([OP.SELECT_DANCE], '六道觉_选择舞技')) return true;
 
 		// ---- 初始技能（开局 buff）：固定选最右侧 ----
-		if (oper([34], '六道觉_初始技能界面')) {
-			const regions = thisOperator[35] && thisOperator[35].oper;
-			if (regions && regions.length > 0) {
-				thisScript.regionClick([regions[regions.length - 1]]);
-			}
+		if (oper([OP.INIT_SKILL], '六道觉_初始技能界面')) {
 			d6OpeningMapIntroPending = true;
 			return true;
 		}
 
 		// ---- 获得奖励界面：优先点掉，避免奖励弹窗遮挡后续判定 ----
-		// 首领结算的「获得奖励」由退出结算流程处理；这里不加 54，避免重复维护两套标题取色。
-		if (oper([42], '六道觉_获得奖励界面')) {
+		if (oper([OP.REWARD], '六道觉_获得奖励界面')) {
 			d6LastRewardDismissTime = now();
 			return true;
 		}
 
-		// 右下角「离开」（绽放 45 / 混沌秘宝 47）与主地图「唤息」位置重合：
-		// 点击离开后冷却期内跳过 45/47/46，防止退场动画期间二次点击误触唤息扣 300，
+		// 右下角「离开」（绽放 / 混沌秘宝）与主地图「唤息」位置重合：
+		// 点击离开后冷却期内跳过绽放/秘宝/精英，防止退场动画期间二次点击误触唤息扣 300，
 		// 同时允许主地图恢复后立即进入 handleMapNodes 读图。
 		const rightLeaveCoolingDown = d6LastRightLeaveClickTime > 0
 			&& now() - d6LastRightLeaveClickTime < D6_RIGHT_LEAVE_COOLDOWN_MS;
 
 		// ---- 绽放之屿：右下角直接离开，不进入战斗 ----
 		// 固定用 D6_BLOOM_SIMILAR（88）且去掉旧 retest=500：实机绽放点 (1073,693) 漂移 8~15，
-		// 过去受高 colorSimilar 影响漏判并落入 47（混沌秘宝）误抢；45 放宽到 88 后在秘宝图 diff=53 仍不误伤 47。
+		// 过去受高 colorSimilar 影响漏判并落入秘宝误抢；放宽到 88 后在秘宝图 diff=53 仍不误伤秘宝。
 		if (!rightLeaveCoolingDown) {
-			const bloomOp = thisOperator[45];
+			const bloomOp = thisOperator[OP.BLOOM_LEAVE];
 			if (bloomOp && bloomOp.desc && bloomOp.oper) {
 				const bloomStart = now();
 				const bloomMatched = thisScript.helperBridge.helper.CompareColorEx(
@@ -3119,32 +2791,28 @@ export class Func323 implements IFuncOrigin {
 					addIslandGainOnce('绽放岛');
 					return true;
 				}
-				if (perfLogEnabled) {
-					perfLog('oper 六道觉_绽放_离开', now() - bloomStart, `matched=false retest=0 similar=${D6_BLOOM_SIMILAR}`);
-				}
 			}
 		}
 
 		// ---- 神秘之屿：退出后 +50 ----
-		if (oper([17], '六道觉_神秘_转换')) {
+		if (oper([OP.MYSTERY_CONVERT], '六道觉_神秘_转换')) {
 			addIslandGainOnce('神秘岛');
 			return true;
 		}
-		if (oper([43], '六道觉_神秘_仿造')) {
+		if (oper([OP.MYSTERY_FORGE], '六道觉_神秘_仿造')) {
 			addIslandGainOnce('神秘岛');
 			return true;
 		}
 
 		// ---- 万象赐福使用 ----
-		if (oper([51], '六道觉_万象赐福使用')) return true;
+		if (oper([OP.BLESSING_USE], '六道觉_万象赐福使用')) return true;
 
 		// ---- 混沌之屿-幸运秘宝：优先于精英判定 ----
-		// 47 的秘宝专属点是宝匣/离开按钮的渐变色，不是纯色；运行时全局
-		// colorSimilar 可能设得很高（例如 100），用 thisScript.oper 会把
-		// 2~4 的通道差也判失败，导致 47 漏判、46 按标题命中后反复点宝匣。
+		// 秘宝专属点是离开按钮的渐变色，不是纯色；运行时全局 colorSimilar 可能设得很高（例如 100），
+		// 用 thisScript.oper 会把 2~4 的通道差也判失败，导致秘宝漏判、精英按标题命中后反复点宝匣。
 		// 这里固定用 88（与事件用例一致）直接比较，命中后点「离开」。
 		if (!rightLeaveCoolingDown) {
-			const chestOp = thisOperator[47];
+			const chestOp = thisOperator[OP.CHAOS_CHEST];
 			if (chestOp && chestOp.desc && chestOp.oper) {
 				const chestStart = now();
 				const chestMatched = thisScript.helperBridge.helper.CompareColorEx(
@@ -3170,11 +2838,11 @@ export class Func323 implements IFuncOrigin {
 			}
 		}
 
-		// ---- 通用挑战按钮：必须放在混沌精英 46 之前 ----
-		// 混沌精英选中后左上角「混沌之屿」标题仍然匹配 46；如果先走 46，
+		// ---- 通用挑战按钮：必须放在混沌精英之前 ----
+		// 混沌精英选中后左上角「混沌之屿」标题仍然匹配 OP.CHAOS_ELITE；如果先走精英，
 		// 会反复点精英，永远点不到右下角「挑战」。
-		// 最后 1~2 步留给下面的首领专用 50/条件检查，避免绕过通关条件。
-		if ((g.d6jueStepLeft || 0) > 2 && oper([20], '六道觉_挑战')) {
+		// 最后 1~2 步留给下面的首领专用 OP.BOSS_CHALLENGE/条件检查，避免绕过通关条件。
+		if ((g.d6jueStepLeft || 0) > 2 && oper([OP.BATTLE_CHALLENGE], '六道觉_挑战')) {
 			d6jueAnalysisLog('map.challenge_early', {
 				step: D6_TOTAL_STEPS - (g.d6jueStepLeft || 0) + 1,
 				left: g.d6jueStepLeft || 0,
@@ -3188,7 +2856,7 @@ export class Func323 implements IFuncOrigin {
 		}
 
 		// ---- 混沌之屿-精英：优先点击 ----
-		if (!rightLeaveCoolingDown && oper([46], '六道觉_混沌_精英')) {
+		if (!rightLeaveCoolingDown && oper([OP.CHAOS_ELITE], '六道觉_混沌_精英')) {
 			// 精英选择后还会经过通用挑战按钮，每岛 +50 只记一次
 			addIslandGainOnce('混沌精英岛');
 			return true;
@@ -3243,10 +2911,10 @@ export class Func323 implements IFuncOrigin {
 					const confirmDetected = thisScript.desc({
 						id: 323,
 						name: '六道觉_商店确认购买检测',
-						operator: [thisOperator[15]],
+						operator: [thisOperator[OP.SHOP_CONFIRM_BUY]],
 					}, thisScript.scheme.commonConfig);
-					if (confirmDetected && thisOperator[15] && thisOperator[15].oper) {
-						thisScript.regionClick(thisOperator[15].oper);
+					if (confirmDetected && thisOperator[OP.SHOP_CONFIRM_BUY] && thisOperator[OP.SHOP_CONFIRM_BUY].oper) {
+						thisScript.regionClick(thisOperator[OP.SHOP_CONFIRM_BUY].oper);
 						g.d6jueShopBuyStage = 2;
 						g.d6jueShopBuyTime = now();
 						console.log('[d6jue-shop] 已点击确认购买，等待校验');
@@ -3296,7 +2964,7 @@ export class Func323 implements IFuncOrigin {
 		const shopDetected = thisScript.desc({
 			id: 323,
 			name: '六道觉_商店界面',
-			operator: [thisOperator[13]],
+			operator: [thisOperator[OP.SHOP_SCREEN]],
 		}, thisScript.scheme.commonConfig);
 		if (shopDetected) {
 			noteStepIsland('shop');
@@ -3334,21 +3002,23 @@ export class Func323 implements IFuncOrigin {
 						const y1 = buyRect[1];
 						const x2 = buyRect[2];
 						const y2 = buyRect[3];
-						// 购买前留一张商店截图，便于核对卡片/购买按钮位置
-						try {
-							const dir = context.getExternalFilesDir(null);
-							if (dir) {
-								const img = images.captureScreen();
-								if (img) {
-									const shot = `${dir.getAbsolutePath()}/d6jue_shop_${g.d6jueTimes || 0}_${g.d6jueStepLeft || 0}_${now()}.png`;
-									images.save(img, shot);
-									img.recycle();
-									console.log(`[d6jue-shop] 商店截图: ${shot}`);
-									d6jueAnalysisLog('shop.screenshot', { path: shot, step: g.d6jueStepLeft || 0, x: lei.x, y: lei.y, grid: gridIndex + 1 });
+						// 购买前留一张商店截图（仅本地调试模式）
+						if (debugMode) {
+							try {
+								const dir = context.getExternalFilesDir(null);
+								if (dir) {
+									const img = images.captureScreen();
+									if (img) {
+										const shot = `${dir.getAbsolutePath()}/d6jue_shop_${g.d6jueTimes || 0}_${g.d6jueStepLeft || 0}_${now()}.png`;
+										images.save(img, shot);
+										img.recycle();
+										console.log(`[d6jue-shop] 商店截图: ${shot}`);
+										d6jueAnalysisLog('shop.screenshot', { path: shot, step: g.d6jueStepLeft || 0, x: lei.x, y: lei.y, grid: gridIndex + 1 });
+									}
 								}
+							} catch (e) {
+								// 截图失败不影响购买
 							}
-						} catch (e) {
-							// 截图失败不影响购买
 						}
 						// 九宫格购买区：只点图标下方名称/价格区，不点图标
 						thisScript.regionClick(buyOper);
@@ -3406,7 +3076,7 @@ export class Func323 implements IFuncOrigin {
 				const refreshAvailable = thisScript.desc({
 					id: 323,
 					name: '六道觉_商店刷新检测',
-					operator: [thisOperator[52]],
+					operator: [thisOperator[OP.SHOP_REFRESH]],
 				}, thisScript.scheme.commonConfig);
 				// 刷新后仍要保留 200 买轰雷：商店刷新 100/次
 				const canKeepLeiPrice = wanxiangling - D6_SHOP_REFRESH_COST >= D6_SHOP_LEI_PRICE;
@@ -3415,7 +3085,7 @@ export class Func323 implements IFuncOrigin {
 						[center, 1280, 720, 595, 600, 640, 645, 1500],
 					]));
 					g.d6jueShopRefresh = (g.d6jueShopRefresh || 0) + 1;
-					// 刷新费等下一次 OCR 校验；OCR 关闭时才直接扣
+					// 刷新费等下一次 OCR 校验
 					beginPendingRefreshCost(D6_SHOP_REFRESH_COST, 'shop_refresh', wanxiangling);
 					console.log(`[d6jue-shop] 未见轰雷，万相铃=${wanxiangling}，刷新第${g.d6jueShopRefresh}次(-${D6_SHOP_REFRESH_COST}，保留${D6_SHOP_LEI_PRICE}购买)，当前=${g.d6jueWanxiangling}（等OCR校验）`);
 					d6jueAnalysisLog('shop.refresh', {
@@ -3423,7 +3093,7 @@ export class Func323 implements IFuncOrigin {
 						walletBefore: wanxiangling,
 						walletAfter: g.d6jueWanxiangling || 0,
 						cost: D6_SHOP_REFRESH_COST,
-						costPending: thisConf.walletOcr !== false ? 1 : 0,
+						costPending: 1,
 						step: g.d6jueStepLeft || 0,
 						lei: g.d6jueLeiLevel || 0,
 					});
@@ -3434,8 +3104,8 @@ export class Func323 implements IFuncOrigin {
 					console.log('[d6jue-shop] 刷新按钮未识别，等待界面稳定后重试');
 					return false;
 				}
-				// 诊断：钱够、没轰雷且没有刷新按钮时留一张商店截图
-				if (thisConf.walletOcr !== false && wanxiangling >= D6_SHOP_LEI_PRICE) {
+				// 诊断（仅本地调试模式）：钱够、没轰雷且没有刷新按钮时留一张商店截图
+				if (debugMode && wanxiangling >= D6_SHOP_LEI_PRICE) {
 					try {
 						const dir = context.getExternalFilesDir(null);
 						if (dir) {
@@ -3495,32 +3165,21 @@ export class Func323 implements IFuncOrigin {
 			return true;
 		}
 
-		// ---- 只打双倍：次数用完停止 ----
-		if (thisConf.onlyDouble && oper([29], '六道觉_双倍次数为0')) {
-			thisScript.myToast('双倍次数已用完，停止运行');
-			console.log('双倍次数已用完，停止运行');
-			d6jueAnalysisLog('run.end', { result: 'stop_double', step: g.d6jueStepLeft || 0, wallet: g.d6jueWanxiangling || 0, lei: g.d6jueLeiLevel || 0, power: g.d6juePowerLevel || 0 });
-			thisScript.rerun('__停止脚本__');
-			return true;
-		}
-
 		// ---- 选事件：识别到唤息即处理，目标完全由小地图决定 ----
 		// 唤息只在“选择下一层节点”阶段出现（暗=不可刷新，亮=可刷新），是阶段指示器；
-		// 备战与节点选择无关且可能被其他 UI 遮挡，不再作为门禁。
 		// 是否真的有可选节点仍由 handleMapNodes 的小地图识别做最终判定。
-		const huanxiDark = oper([37], '六道觉_唤息_暗');
-		const huanxiBright = !huanxiDark && oper([44], '六道觉_唤息_亮');
+		const huanxiDark = oper([OP.HUANXI_DARK], '六道觉_唤息_暗');
+		const huanxiBright = !huanxiDark && oper([OP.HUANXI_BRIGHT], '六道觉_唤息_亮');
 		if (huanxiDark || huanxiBright) {
 			// 小地图无法确定目标时不点任何其他节点
 			return handleMapNodes(true, huanxiBright);
 		}
 
-		// TODO(六道觉): 若 g.d6jueOtherBuffSelected 为 true，boss 战开打前需要先卸载其他 buff
-		// ---- 首领挑战：条件不足时结束脚本（TODO: 改为直接退出 boss 挑战）----
+		// ---- 首领挑战：条件不足时结束脚本 ----
 		const bossDetected = thisScript.desc({
 			id: 323,
 			name: '六道觉_首领挑战检测',
-			operator: [thisOperator[50]],
+			operator: [thisOperator[OP.BOSS_CHALLENGE]],
 		}, thisScript.scheme.commonConfig);
 		if (bossDetected) {
 			// 首领是最后一回合：直接置 0，不依赖点击确认。
@@ -3544,7 +3203,6 @@ export class Func323 implements IFuncOrigin {
 				cantClear: !!g.d6jueCantClear,
 			});
 			if (powerLevel <= 2 || leiLevel <= 0 || g.d6jueCantClear) {
-				// TODO(六道觉): 通关条件不足时直接退出 boss 挑战；当前先结束脚本
 				const flag = g.d6jueCantClear ? '（无法通关标记=T）' : '';
 				const msg = `通关条件不足${flag}：力量等级=${powerLevel} 轰雷等级=${leiLevel}，结束脚本`;
 				console.log('[d6jue] ' + msg);
@@ -3561,19 +3219,19 @@ export class Func323 implements IFuncOrigin {
 				return true;
 			}
 			if (!g.d6jueBossStartTime) g.d6jueBossStartTime = now();
-			thisScript.oper({ id: 323, name: '六道觉_首领挑战', operator: [thisOperator[50]] });
+			thisScript.oper({ id: 323, name: '六道觉_首领挑战', operator: [thisOperator[OP.BOSS_CHALLENGE]] });
 			return true;
 		}
 
 		// ---- 挑战按钮：放在鏖战前，避免挑战界面仍带着地图点位时误点怪物 ----
-		// 首领专用 operator[50] 未命中时，用通用挑战按钮兜底：
+		// 首领专用 OP.BOSS_CHALLENGE 未命中时，用通用挑战按钮兜底：
 		// 1. 挑战界面出现只作为“已进岛”证据，步数仍由下一次稳定地图/计数器下降确认；
 		// 2. 最后一步且条件不足时，不再点通用挑战，直接停止。
 		if ((g.d6jueStepLeft || 0) <= 2) {
 			const challengeDetected = thisScript.desc({
 				id: 323,
 				name: '六道觉_挑战检测',
-				operator: [thisOperator[20]],
+				operator: [thisOperator[OP.BATTLE_CHALLENGE]],
 			}, thisScript.scheme.commonConfig);
 			if (challengeDetected) {
 				noteStepIsland('challenge_detect');
@@ -3606,23 +3264,23 @@ export class Func323 implements IFuncOrigin {
 					thisScript.rerun('__停止脚本__');
 					return true;
 				}
-				// 通用挑战 20 在最后一行可能只是普通战斗（本局 0 步时出现过），
-				// 不能在这里启动首领 60 秒计时；计时只在真正命中 operator[50] 时启动。
+				// 通用挑战在最后一行可能只是普通战斗（本局 0 步时出现过），
+				// 不能在这里启动首领 60 秒计时；计时只在真正命中 OP.BOSS_CHALLENGE 时启动。
 			}
 		}
-		if (oper([20], '六道觉_挑战')) {
+		if (oper([OP.BATTLE_CHALLENGE], '六道觉_挑战')) {
 			addIslandGainOnce('鏖战岛');
 			return true;
 		}
 
-		// ---- 鏖战-选择怪物：进入鏖战之屿后点右侧敌人；主地图节点由 operator[53] 固定选择位处理 ----
-		if (oper([38], '六道觉_鏖战_选择怪物')) {
+		// ---- 鏖战-选择怪物：进入鏖战之屿后点右侧敌人；主地图节点由 OP.MAP_SLOTS 固定选择位处理 ----
+		if (oper([OP.BATTLE_SELECT_MONSTER], '六道觉_鏖战_选择怪物')) {
 			addIslandGainOnce('鏖战岛');
 			return true;
 		}
 
 		// ---- 舞技强化-选择强化：优先于刷新门禁，避免选强化界面被当成舞技强化入口 ----
-		if (oper([41], '六道觉_舞技强化-选择强化')) {
+		if (oper([OP.SKILL_UPGRADE_PICK], '六道觉_舞技强化-选择强化')) {
 			if (buffSelectLocked()) return true;
 			const powerBefore = g.d6juePowerLevel || 0;
 			g.d6juePowerLevel = powerBefore + 1;
@@ -3644,8 +3302,8 @@ export class Func323 implements IFuncOrigin {
 		}
 
 		// ---- 舞技强化/buff选择：右下角「刷新」表示该界面（亮/暗都识别）----
-		const refreshDark = oper([49], '六道觉_舞技强化_刷新_暗');
-		if (oper([39], '六道觉_舞技强化_刷新') || refreshDark) {
+		const refreshDark = oper([OP.BUFF_REFRESH_DARK], '六道觉_舞技强化_刷新_暗');
+		if (oper([OP.BUFF_REFRESH], '六道觉_舞技强化_刷新') || refreshDark) {
 			addIslandGainOnce('战斗岛');
 			// 新 buff 界面先等入场动画结束；同一界面的后续轮次（刷新后）不重复等
 			const buffScreenGap = d6BuffScreenLastSeen ? now() - d6BuffScreenLastSeen : Infinity;
@@ -3701,7 +3359,7 @@ export class Func323 implements IFuncOrigin {
 					&& d6BuffRefreshCount < D6_BUFF_REFRESH_MAX_PER_SCREEN;
 			const enterSkillUpgrade = (logMsg: string): boolean => {
 				const preSample = readBuffCardsSample();
-				if (!oper([40], '六道觉_舞技强化')) return false;
+				if (!oper([OP.SKILL_UPGRADE], '六道觉_舞技强化')) return false;
 				d6PreSkillBuffSample = preSample;
 				resetBuffScreenState();
 				console.log(logMsg);
@@ -3759,7 +3417,7 @@ export class Func323 implements IFuncOrigin {
 			if (powerLevel >= 10 && leiLevel >= 3 && !canRefreshBuff) {
 				const cards = scanBuffCards();
 				const onlyBlacklist = cards.length === 3
-					&& cards.every(card => !!card.name && buffBlacklist.includes(card.name));
+					&& cards.every(card => !!card.name && D6_BUFF_BLACKLIST.includes(card.name));
 				if (onlyBlacklist) {
 					const pick = cards[Math.floor(Math.random() * cards.length)];
 					return forceClickBuffCard(pick.index, pick.name);
@@ -3770,36 +3428,9 @@ export class Func323 implements IFuncOrigin {
 			return false;
 		}
 
-		// ---- 核心buff满层检测，便于接手打到一半的局 ----
-		if (coreBuffMax > 0 && g.d6jueCoreBuff < coreBuffMax && oper([12], '六道觉_核心buff满层检测')) {
-			g.d6jueCoreBuff = coreBuffMax;
-			thisScript.myToast(`${coreBuff}已满，进入速通模式`);
-			console.log(`检测到${coreBuff}满层，进入速通模式`);
-			return true;
-		}
-
-		// ---- 商店：可购买buff位置不固定，走多点找色 ----
-		if (oper([13], '六道觉_商店界面')) {
-			const point = thisScript.findMultiColor('六道觉_购买buff');
-			if (point) {
-				const scalePt = thisScript.helperBridge.helper.GetPoint(1280, 720, right);
-				const uiScale = scalePt.y > 0 ? scalePt.y / 720 : 1;
-				thisScript.regionClick([[
-					Math.round(point.x - 10 * uiScale),
-					Math.round(point.y + 50 * uiScale),
-					Math.round(point.x + 10 * uiScale),
-					Math.round(point.y + 140 * uiScale),
-					500,
-				]]);
-			}
-			if (oper([15], '六道觉_商店_确认购买', 500)) return true;
-			if (oper([16], '六道觉_商店_退出', 500)) return true;
-			return false;
-		}
-
 		// ---- 战斗失败：放弃前行 / 确定放弃 ----
 		// 失败后不能继续按“通关”结算：记录 boss_fail、清掉首领计时并停止脚本。
-		// 24 点“放弃前行”，25 处理可能出现的二次确认；两者只收尾一次。
+		// OP.BATTLE_FAIL_GIVEUP 点“放弃前行”，OP.BATTLE_FAIL_CONFIRM 处理可能出现的二次确认；两者只收尾一次。
 		const recordBattleFail = (stage: string) => {
 			if (d6BattleFailHandled) return;
 			d6BattleFailHandled = true;
@@ -3811,7 +3442,6 @@ export class Func323 implements IFuncOrigin {
 			});
 			g.d6jueBossStartTime = 0;
 			g.d6jueStarted = false;
-			g.d6jueStartPrompted = false;
 			d6jueAnalysisLog('run.end', {
 				result: 'boss_fail',
 				reason: 'battle_fail',
@@ -3829,26 +3459,17 @@ export class Func323 implements IFuncOrigin {
 			sleep(1500);
 			thisScript.rerun('__停止脚本__');
 		};
-		if (oper([24], '六道觉_战斗失败_放弃前行')) {
+		if (oper([OP.BATTLE_FAIL_GIVEUP], '六道觉_战斗失败_放弃前行')) {
 			recordBattleFail('giveup');
 			return true;
 		}
-		if (oper([25], '六道觉_战斗失败_确定放弃')) {
+		if (oper([OP.BATTLE_FAIL_CONFIRM], '六道觉_战斗失败_确定放弃')) {
 			recordBattleFail('confirm');
 			return true;
 		}
 
-		// ---- 其余单步操作：已取色的状态统一执行 ----
-		// 21/22 为双倍确认弹窗的两个按钮，默认都启用（与 316 一致），可按需删减
-		if (oper([
-			8, 9, 10, 11, 12, 16, 18, 19,
-			21, 22, 23, 26, 27, 30,
-		], '六道觉_执行个别事件')) {
-			return true;
-		}
-
 		// ---- 结算：统计、推送、切换方案（放在最后，先关掉奖励弹窗再统计）----
-		if (oper([28], '六道觉_结算_完成')) {
+		if (oper([OP.SETTLE_DONE], '六道觉_结算_完成')) {
 			// 一轮已经跑完：清空首领计时，避免结算/奖励界面停留时被 60 秒超时误停。
 			g.d6jueBossStartTime = 0;
 			thisConf.overTimes = Math.floor(Number(thisConf.overTimes) || 0);
@@ -3865,8 +3486,7 @@ export class Func323 implements IFuncOrigin {
 			});
 			const cost = ((time - (g.d6jueBegin || time)) / 1000 / 60).toFixed(2); // 分
 			const costAvg = Math.floor((time - (g.d6jueBegin || time)) / 1000 / (g.d6jueTimes || 1)); // 秒
-			const bufLog = coreBuff && coreBuffMax > 0 ? `本局${coreBuff}：${g.d6jueCoreBuff}。` : '';
-			let toLog = `${bufLog}通关次数: ${g.d6jueTimes || 0}次, 本次通关时间: ${currentCost}秒, 平均通关时间: ${costAvg}秒, 总通关时间: ${cost}分`;
+			let toLog = `通关次数: ${g.d6jueTimes || 0}次, 本次通关时间: ${currentCost}秒, 平均通关时间: ${costAvg}秒, 总通关时间: ${cost}分`;
 			if (thisConf.overTimes && g.d6jueTimes >= thisConf.overTimes) {
 				toLog = `[${thisScript.schemeHistory.map(item => item.schemeName).join('、')}]已够次数，请查看。` + toLog;
 			}
@@ -3882,14 +3502,12 @@ export class Func323 implements IFuncOrigin {
 			}
 			if (thisConf.overTimes && g.d6jueTimes >= thisConf.overTimes) {
 				g.d6jueStarted = false;
-				g.d6jueStartPrompted = false;
 				thisScript.rerun(thisConf.next_scheme);
 				sleep(3000);
 				return true;
 			}
-			// 本局结束：下一次必须由脚本重新点击「开启」才继续执行
+			// 本局结束
 			g.d6jueStarted = false;
-			g.d6jueStartPrompted = false;
 			return true;
 		}
 

@@ -10,7 +10,7 @@
  * 缓冲区每 20 行或 3 秒落盘一次，避免频繁 I/O 影响计时。
  */
 
-import { D6_LOGIC_VERSION } from './d6jueVersion';
+import { D6_LOGIC_VERSION, isD6DebugMode } from './d6jueVersion';
 
 let buffer: string[] = [];
 let started = false;
@@ -34,6 +34,7 @@ function flush(): void {
 }
 
 export function perfLogLine(line: string): void {
+	if (!isD6DebugMode()) return;
 	const now = new Date().getTime();
 	if (!started) {
 		started = true;

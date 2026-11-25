@@ -88,9 +88,7 @@ export type globalRootType = {
 	d6Loop: number;//     椒图事件点击循环数
 	d6RouFeng: number;//     椒图柔风实时buff数
 	d6jueStarted: boolean;// 六道觉是否已由脚本点击「开启」进入本局
-	d6jueStartPrompted: boolean;// 六道觉未开启时是否已提示
 	d6jueCantClear: boolean;// 六道觉本局已判定无法通关（T）
-	d6jueCoreBuff: number;// 六道觉核心buff实时层数
 	d6jueTimes: number;//    六道觉通关次数
 	d6jueBegin: number;//    六道觉首次开始时间
 	d6jueCurrentBegin: number;// 六道觉本局开始时间
@@ -100,11 +98,7 @@ export type globalRootType = {
 	d6jueLastMapSigTime: number;// 六道觉上次点击时的节点行签名时间
 	d6jueStepPending: boolean;// 六道觉最近一次地图点击是否等待确认推进
 	d6jueLeiLevel: number;// 六道觉六道轰雷等级
-	d6jueOtherBuffSelected: boolean;// 六道觉是否选择过其他buff（boss战前需卸载）
 	d6juePowerLevel: number;// 六道觉力量等级，初始为0
-	d6jueYaoLevel: number;// 六道觉妖力化身等级（不要到2级）
-	d6jueBeishuiLevel: number;// 六道觉背水一战等级（不要到2级）
-	d6jueChifenLevel: number;// 六道觉炽焚天火等级（需在轰雷后拿）
 	d6jueShopRefresh: number;// 六道觉商店本次已刷新次数
 	d6jueShopBuyPending: boolean;// 六道觉已点购买，等待确认结果
 	d6jueShopBuyStage: number;// 六道觉购买阶段：1=等确认弹窗，2=已点确认等待校验
@@ -264,9 +258,7 @@ export const globalRoot: globalRootType = {
 	d6Loop: 0,
 	d6RouFeng: 1,
 	d6jueStarted: false,
-	d6jueStartPrompted: false,
 	d6jueCantClear: false,
-	d6jueCoreBuff: 0,
 	d6jueTimes: 0,
 	d6jueBegin: 0,
 	d6jueCurrentBegin: 0,
@@ -276,11 +268,7 @@ export const globalRoot: globalRootType = {
 	d6jueLastMapSigTime: 0,
 	d6jueStepPending: false,
 	d6jueLeiLevel: 0,
-	d6jueOtherBuffSelected: false,
 	d6juePowerLevel: 0,
-	d6jueYaoLevel: 0,
-	d6jueBeishuiLevel: 0,
-	d6jueChifenLevel: 0,
 	d6jueShopRefresh: 0,
 	d6jueShopBuyPending: false,
 	d6jueShopBuyStage: 0,

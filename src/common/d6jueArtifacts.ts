@@ -11,6 +11,8 @@
  * 清理失败不影响主流程。
  */
 
+import { isD6DebugMode } from './d6jueVersion';
+
 const D6_KEEP_SHOTS = 60;
 const D6_PERF_MAX_SIZE = 2 * 1024 * 1024;
 
@@ -31,6 +33,7 @@ function fileSize(path: string): number {
 }
 
 export function d6juePruneArtifacts(): void {
+	if (!isD6DebugMode()) return;
 	// 每个脚本进程只清理一次，多次开局不重复扫目录
 	if (pruned) return;
 	pruned = true;

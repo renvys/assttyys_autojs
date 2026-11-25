@@ -8,7 +8,10 @@
  * 停止脚本后仍可回溯历史 unknown 记录。
  */
 
+import { isD6DebugMode } from './d6jueVersion';
+
 export function d6jueUnknownLog(line: string): void {
+	if (!isD6DebugMode()) return;
 	try {
 		const dir = context.getExternalFilesDir(null);
 		if (!dir) return;

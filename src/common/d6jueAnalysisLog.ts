@@ -10,7 +10,7 @@
  * 这样即使没有 run.start 也能判断设备上跑的是哪一版。
  */
 
-import { D6_LOGIC_VERSION } from './d6jueVersion';
+import { D6_LOGIC_VERSION, isD6DebugMode } from './d6jueVersion';
 
 const D6_ANALYSIS_ROTATE_BYTES = 5 * 1024 * 1024;
 
@@ -44,6 +44,7 @@ export function d6jueAnalysisPath(): string {
 }
 
 export function d6jueAnalysisLog(event: string, data?: { [key: string]: string | number | boolean }): void {
+	if (!isD6DebugMode()) return;
 	try {
 		const path = d6jueAnalysisPath();
 		if (!path) return;

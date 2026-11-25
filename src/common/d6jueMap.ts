@@ -101,7 +101,7 @@ export interface D6MapChoice {
  */
 export const D6_MINIMAP_DEV_REGION = { x0: 1060, y0: 0, x1: 1270, y1: 235 } as const;
 
-/** 主地图固定选择位顺序，与 323 operator[53].oper 的下标一一对应 */
+/** 主地图固定选择位顺序，与 323 OP.MAP_SLOTS（operator[8].oper）的下标一一对应 */
 export const D6_MAP_SLOTS: D6MapSlot[] = [
 	'single',
 	'two-left',
@@ -1002,7 +1002,7 @@ export function pickD6MapChoice(
 	return { target, index, count, slot };
 }
 
-/** 选择位在 323 operator[53].oper 中的下标 */
+/** 选择位在 323 OP.MAP_SLOTS（operator[8].oper）中的下标 */
 export function d6MapSlotIndex(slot: D6MapSlot): number {
 	return D6_MAP_SLOTS.indexOf(slot);
 }

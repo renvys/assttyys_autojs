@@ -8,3 +8,22 @@
  * 建议格式：<主题><序号>，例如 counter3+bannerRetry。
  */
 export const D6_LOGIC_VERSION = 'stepTransition1+clickDist1+buffSimilar1+buffWait4+clickSmall1+mapCache2+stepGuard1+clearedChaos1+twoRight1+buffCont1+huanxiDeduct2+buffFast1+battleFail1+initBuffRight1+mapFast1+settleReal2+buffFast2+postReward1+fastFlow2+refreshGuard1+openIntro2+shopRetry1+bannerFast1+huanxiAll1+mapRefine1+skillUnlock1+chaosWallet1+scaleFix1+logRotate1+shopCamera2+buffWait5+unknownDelay1';
+
+let d6DebugModeCached: boolean | null = null;
+
+/**
+ * 仅在本地调试环境（DebugPlayer / Auto.js Pro）开启落盘日志与调试截图；
+ * 打包发布版返回 false，避免向用户设备写入调试文件。
+ */
+export function isD6DebugMode(): boolean {
+	if (d6DebugModeCached !== null) return d6DebugModeCached;
+	try {
+		const pkg = typeof context !== 'undefined' && context && context.packageName
+			? String(context.packageName)
+			: '';
+		d6DebugModeCached = /debugplaye[rs]/.test(pkg) || /^org\.autojs\.autojs(pro)?$/.test(pkg);
+	} catch (e) {
+		d6DebugModeCached = false;
+	}
+	return d6DebugModeCached;
+}
