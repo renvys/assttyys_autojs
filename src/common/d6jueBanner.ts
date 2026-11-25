@@ -25,36 +25,55 @@ export interface D6BannerAnchor {
 /** 把屏幕分辨率截图缩到接近 1280x720，复用离线调好的阈值。 */
 export function downsampleD6BannerImage(image: ImageDataLike, factor: number): ImageDataLike {
 	if (!(factor > 1.001)) return image;
-	const w = Math.max(1, Math.floor(image.width / factor));
-	const h = Math.max(1, Math.floor(image.height / factor));
+	const srcW = image.width;
+	const srcH = image.height;
+	const src = image.data;
+	const w = Math.max(1, Math.floor(srcW / factor));
+	const h = Math.max(1, Math.floor(srcH / factor));
 	const data = new Uint8ClampedArray(w * h * 4);
+	// 预计算 x 方向映射，避免内层循环重复调用 Math.floor/min/max
+	const sx0Map = new Int32Array(w);
+	const sx1Map = new Int32Array(w);
+	for (let x = 0; x < w; x++) {
+		const s0 = Math.floor(x * factor);
+		let s1 = Math.floor((x + 1) * factor);
+		if (s1 <= s0) s1 = s0 + 1;
+		if (s1 > srcW) s1 = srcW;
+		sx0Map[x] = s0;
+		sx1Map[x] = s1;
+	}
 	for (let y = 0; y < h; y++) {
 		const sy0 = Math.floor(y * factor);
-		const sy1 = Math.min(image.height, Math.max(sy0 + 1, Math.floor((y + 1) * factor)));
+		let sy1 = Math.floor((y + 1) * factor);
+		if (sy1 <= sy0) sy1 = sy0 + 1;
+		if (sy1 > srcH) sy1 = srcH;
+		const dstRow = y * w;
 		for (let x = 0; x < w; x++) {
-			const sx0 = Math.floor(x * factor);
-			const sx1 = Math.min(image.width, Math.max(sx0 + 1, Math.floor((x + 1) * factor)));
+			const sx0 = sx0Map[x];
+			const sx1 = sx1Map[x];
 			let r = 0;
 			let g = 0;
 			let b = 0;
 			let a = 0;
 			let n = 0;
 			for (let sy = sy0; sy < sy1; sy++) {
+				let k = (sy * srcW + sx0) * 4;
 				for (let sx = sx0; sx < sx1; sx++) {
-					const k = (sy * image.width + sx) * 4;
-					r += image.data[k];
-					g += image.data[k + 1];
-					b += image.data[k + 2];
-					a += image.data[k + 3];
+					r += src[k];
+					g += src[k + 1];
+					b += src[k + 2];
+					a += src[k + 3];
+					k += 4;
 					n++;
 				}
 			}
-			const d = (y * w + x) * 4;
+			const d = (dstRow + x) * 4;
 			if (n > 0) {
-				data[d] = r / n;
-				data[d + 1] = g / n;
-				data[d + 2] = b / n;
-				data[d + 3] = a / n;
+				const inv = 1 / n;
+				data[d] = r * inv;
+				data[d + 1] = g * inv;
+				data[d + 2] = b * inv;
+				data[d + 3] = a * inv;
 			}
 		}
 	}
@@ -66,104 +85,122 @@ export function detectD6BannerAnchor(image: ImageDataLike, slotCenter: [number, 
 	const H = image.height;
 	if (W < 20 || H < 20) return null;
 
-	const bright = new Uint8Array(W * H);
-	const dark = new Uint8Array(W * H);
-	for (let y = 0; y < H; y++) {
-		for (let x = 0; x < W; x++) {
-			const k = (y * W + x) * 4;
-			const r = image.data[k];
-			const g = image.data[k + 1];
-			const b = image.data[k + 2];
-			const l = 0.299 * r + 0.587 * g + 0.114 * b;
-			const max = Math.max(r, g, b);
-			const min = Math.min(r, g, b);
-			const idx = y * W + x;
-			// 白字要求足够亮且接近中性白；雪地偏蓝，饱和度稍高
-			bright[idx] = l >= 175 && max - min <= 48 ? 1 : 0;
-			// 深色描边/半透明底
-			dark[idx] = l <= 118 ? 1 : 0;
-		}
-	}
-
-	// 深色像素积分图，用于快速统计 7x7 邻域
+	const data = image.data;
+	const total = W * H;
 	const iw = W + 1;
+	// 单遍融合：计算白字稀疏表 + 深色像素积分图（省掉 dark 数组、第二遍全图遍历与 11 万次 Math.max/min）
 	const integral = new Int32Array(iw * (H + 1));
+	const brightX = new Int16Array(total);
+	const brightY = new Int16Array(total);
+	let brightCount = 0;
+	let k = 0;
 	for (let y = 0; y < H; y++) {
 		let rowSum = 0;
+		const prevIntRow = y * iw;
+		const curIntRow = prevIntRow + iw;
 		for (let x = 0; x < W; x++) {
-			rowSum += dark[y * W + x];
-			integral[(y + 1) * iw + (x + 1)] = integral[y * iw + (x + 1)] + rowSum;
+			const r = data[k];
+			const g = data[k + 1];
+			const b = data[k + 2];
+			k += 4;
+			const l1000 = 299 * r + 587 * g + 114 * b;
+			if (l1000 <= 118000) {
+				rowSum++;
+			} else if (l1000 >= 175000) {
+				let max = r;
+				let min = r;
+				if (g > max) max = g;
+				else if (g < min) min = g;
+				if (b > max) max = b;
+				else if (b < min) min = b;
+				// 白字要求足够亮且接近中性白；雪地偏蓝，饱和度稍高
+				if (max - min <= 48) {
+					brightX[brightCount] = x;
+					brightY[brightCount] = y;
+					brightCount++;
+				}
+			}
+			integral[curIntRow + x + 1] = integral[prevIntRow + x + 1] + rowSum;
 		}
 	}
-	const darkCount = (cx: number, cy: number, radius: number) => {
-		const ax = Math.max(0, cx - radius);
-		const ay = Math.max(0, cy - radius);
-		const bx = Math.min(W - 1, cx + radius);
-		const by = Math.min(H - 1, cy + radius);
-		return integral[(by + 1) * iw + (bx + 1)]
-			- integral[ay * iw + (bx + 1)]
-			- integral[(by + 1) * iw + ax]
-			+ integral[ay * iw + ax];
-	};
+	if (brightCount < 14) return null;
 
-	// 只保留“白字且周围有深色描边”的像素
-	const mask = new Uint8Array(W * H);
-	for (let y = 0; y < H; y++) {
-		for (let x = 0; x < W; x++) {
-			const idx = y * W + x;
-			if (bright[idx] && darkCount(x, y, 3) >= 3) mask[idx] = 1;
+	// 只遍历稀疏白字像素，内联 7x7 深色描边积分图查询，同时收集 mask 稀疏坐标
+	const mask = new Uint8Array(total);
+	const maskX = new Int16Array(brightCount);
+	const maskY = new Int16Array(brightCount);
+	let maskCount = 0;
+	for (let i = 0; i < brightCount; i++) {
+		const x = brightX[i];
+		const y = brightY[i];
+		const ax = x > 3 ? x - 3 : 0;
+		const ay = y > 3 ? y - 3 : 0;
+		const bx1 = x + 4 < W ? x + 4 : W;
+		const by1 = y + 4 < H ? y + 4 : H;
+		const ayRow = ay * iw;
+		const byRow = by1 * iw;
+		const dc = integral[byRow + bx1] - integral[ayRow + bx1] - integral[byRow + ax] + integral[ayRow + ax];
+		if (dc >= 3) {
+			mask[y * W + x] = 1;
+			maskX[maskCount] = x;
+			maskY[maskCount] = y;
+			maskCount++;
 		}
 	}
+	if (maskCount < 14) return null;
 
-	// 8 邻域连通域
-	const vis = new Uint8Array(W * H);
-	const qx = new Int32Array(W * H);
-	const qy = new Int32Array(W * H);
+	// 8 邻域连通域：只遍历稀疏 mask 点；用 mask[idx]=2 原地标记已访问，省掉 vis 全图数组并大幅缩减队列内存
+	const qx = new Int16Array(maskCount);
+	const qy = new Int16Array(maskCount);
 	const comps: Array<{ minx: number; maxx: number; miny: number; maxy: number; w: number; h: number; area: number }> = [];
-	for (let y = 0; y < H; y++) {
-		for (let x = 0; x < W; x++) {
-			const idx = y * W + x;
-			if (!mask[idx] || vis[idx]) continue;
-			let head = 0;
-			let tail = 0;
-			qx[tail] = x;
-			qy[tail] = y;
-			tail++;
-			vis[idx] = 1;
-			let minx = x;
-			let maxx = x;
-			let miny = y;
-			let maxy = y;
-			let area = 0;
-			while (head < tail) {
-				const cx = qx[head];
-				const cy = qy[head];
-				head++;
-				area++;
-				if (cx < minx) minx = cx;
-				if (cx > maxx) maxx = cx;
-				if (cy < miny) miny = cy;
-				if (cy > maxy) maxy = cy;
-				for (let dy = -1; dy <= 1; dy++) {
-					for (let dx = -1; dx <= 1; dx++) {
-						if (!dx && !dy) continue;
-						const nx = cx + dx;
-						const ny = cy + dy;
-						if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-						const ni = ny * W + nx;
-						if (!mask[ni] || vis[ni]) continue;
-						vis[ni] = 1;
+	const maxXBound = W - 1;
+	const maxYBound = H - 1;
+	for (let m = 0; m < maskCount; m++) {
+		const sx = maskX[m];
+		const sy = maskY[m];
+		const sIdx = sy * W + sx;
+		if (mask[sIdx] !== 1) continue;
+		let head = 0;
+		let tail = 0;
+		qx[tail] = sx;
+		qy[tail] = sy;
+		tail++;
+		mask[sIdx] = 2;
+		let minx = sx;
+		let maxx = sx;
+		let miny = sy;
+		let maxy = sy;
+		let area = 0;
+		while (head < tail) {
+			const cx = qx[head];
+			const cy = qy[head];
+			head++;
+			area++;
+			if (cx < minx) minx = cx;
+			if (cx > maxx) maxx = cx;
+			if (cy < miny) miny = cy;
+			if (cy > maxy) maxy = cy;
+			const y0 = cy > 0 ? cy - 1 : 0;
+			const y1 = cy < maxYBound ? cy + 1 : maxYBound;
+			const x0 = cx > 0 ? cx - 1 : 0;
+			const x1 = cx < maxXBound ? cx + 1 : maxXBound;
+			for (let ny = y0; ny <= y1; ny++) {
+				const nrow = ny * W;
+				for (let nx = x0; nx <= x1; nx++) {
+					const ni = nrow + nx;
+					if (mask[ni] === 1) {
+						mask[ni] = 2;
 						qx[tail] = nx;
 						qy[tail] = ny;
 						tail++;
 					}
 				}
 			}
-			const w = maxx - minx + 1;
-			const h = maxy - miny + 1;
-			if (area < 10 || w > 55 || h > 110) continue;
-			comps.push({ minx, maxx, miny, maxy, w, h, area });
 		}
+		const w = maxx - minx + 1;
+		const h = maxy - miny + 1;
+		if (area < 10 || w > 55 || h > 110) continue;
+		comps.push({ minx, maxx, miny, maxy, w, h, area });
 	}
 	if (!comps.length) return null;
 

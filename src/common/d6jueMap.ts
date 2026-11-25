@@ -137,14 +137,8 @@ const SHAPE_MIN_SCORE = 0.18;
 const SHAPE_MIN_COVERAGE = 0.7;
 /** 宁息/绽放形状补判：两者分数差下限，避免模棱两可时误判 */
 const SHAPE_MIN_MARGIN = 0.015;
-/** 定位针颜色：亮黄色 */
-function isPinPixel(r: number, g: number, b: number): boolean {
-	return r > 205 && g > 160 && b < 210 && (r - b) > 45 && (g - b) > 25;
-}
-/** 岛屿图标颜色：金色（亮/暗都满足） */
-function isGoldPixel(r: number, g: number, b: number): boolean {
-	return r > 85 && g > 65 && b < 205 && (r - b) > 18 && (g - b) > 8 && r >= g - 18;
-}
+// 定位针颜色（亮黄色，内联在 findPin）：r > 205 && g > 160 && b < 210 && (r - b) > 45 && (g - b) > 25
+// 岛屿图标颜色（金色，内联在 buildGoldIntegral/nodeBrightness/goldCentroid）：r > 85 && g > 65 && b < 205 && (r - b) > 18 && (g - b) > 8 && r >= g - 18
 
 interface RawIconTemplate {
 	key: string;
@@ -159,8 +153,10 @@ interface IconTemplate {
 	type: D6MapNodeType;
 	size: number;
 	gray: Float32Array;
-	/** gray - mean，NCC 内层直接用，省一次减法 */
-	centered: Float32Array;
+	/** 已按 L2 范数归一化的零均值模板 (gray - mean) / sqrt(ss)，供单遍 24x24 精搜 NCC */
+	normCentered: Float32Array;
+	/** 隔行隔列 12x12 下采样归一化零均值模板，供 3x3 粗搜排名（计算量降为 1/4） */
+	coarseNormCentered: Float32Array;
 	mean: number;
 	ss: number;
 }
@@ -196,7 +192,38 @@ function decodeTemplate(raw: RawIconTemplate): IconTemplate {
 		centered[i] = d;
 		ss += d * d;
 	}
-	return { key: raw.key, type: raw.type, size, gray, centered, mean, ss };
+	const normCentered = new Float32Array(gray.length);
+	const invNorm = ss > 1e-9 ? 1 / Math.sqrt(ss) : 0;
+	for (let i = 0; i < gray.length; i++) {
+		normCentered[i] = centered[i] * invNorm;
+	}
+	// 12x12 隔行隔列下采样模板，用于粗搜排名；精搜仍使用完整 24x24
+	const halfSize = size >> 1;
+	const coarseLen = halfSize * halfSize;
+	const coarseRaw = new Float32Array(coarseLen);
+	let coarseSum = 0;
+	let ci = 0;
+	for (let y = 0; y < size; y += 2) {
+		const row = y * size;
+		for (let x = 0; x < size; x += 2) {
+			const v = gray[row + x];
+			coarseRaw[ci++] = v;
+			coarseSum += v;
+		}
+	}
+	const coarseMean = coarseSum / coarseLen;
+	const coarseNormCentered = new Float32Array(coarseLen);
+	let coarseSs = 0;
+	for (let i = 0; i < coarseLen; i++) {
+		const d = coarseRaw[i] - coarseMean;
+		coarseNormCentered[i] = d;
+		coarseSs += d * d;
+	}
+	const invCoarseNorm = coarseSs > 1e-9 ? 1 / Math.sqrt(coarseSs) : 0;
+	for (let i = 0; i < coarseLen; i++) {
+		coarseNormCentered[i] *= invCoarseNorm;
+	}
+	return { key: raw.key, type: raw.type, size, gray, normCentered, coarseNormCentered, mean, ss };
 }
 
 const ICON_TEMPLATES: IconTemplate[] = RAW_ICON_TEMPLATES.map(decodeTemplate);
@@ -261,9 +288,16 @@ interface DevImage {
 	/** 区域宽高（开发坐标） */
 	w: number;
 	h: number;
-	/** 重采样后的 RGBA 区域 */
-	rgba: Uint8Array;
-	/** 灰度图，供 NCC 使用 */
+	/** 重采样后的 RGBA 区域；与开发尺寸一致时直接复用原缓冲 */
+	rgba: Uint8ClampedArray | Uint8Array | number[];
+}
+
+interface LocalGrayPatch {
+	/** 局部块左上角在开发局部坐标（相对 D6_MINIMAP_DEV_REGION）中的起点 */
+	x0: number;
+	y0: number;
+	w: number;
+	h: number;
 	gray: Float32Array;
 }
 
@@ -271,6 +305,10 @@ interface DevImage {
  * 把设备截图裁剪区重采样成开发坐标区域。
  * 设备分辨率可能是 1280x720、1920x1080 等，统一按开发坐标计算，
  * 模板和列坐标无需随分辨率修改。
+ *
+ * 性能：
+ * - 1280x720 下裁剪区本身就是 211x236，直接复用原缓冲，免掉 5 万像素拷贝；
+ * - 全图不再预计算灰度，只对最终选中的 1~4 个亮节点按需提取 30x30 局部灰度。
  */
 function buildDevImage(image: D6MapImageData): DevImage | null {
 	const w = REGION_W;
@@ -278,28 +316,32 @@ function buildDevImage(image: D6MapImageData): DevImage | null {
 	const sw = image.width;
 	const sh = image.height;
 	if (!sw || !sh) return null;
-	const rgba = new Uint8Array(w * h * 4);
-	const gray = new Float32Array(w * h);
 	const data = image.data;
+	if (sw === w && sh === h) {
+		return { w, h, rgba: data };
+	}
+	const rgba = new Uint8Array(w * h * 4);
+	const sxMap = new Int32Array(w);
+	for (let x = 0; x < w; x++) {
+		let sx = Math.floor((x + 0.5) * sw / w);
+		if (sx >= sw) sx = sw - 1;
+		sxMap[x] = sx * 4;
+	}
+	let di = 0;
 	for (let y = 0; y < h; y++) {
 		let sy = Math.floor((y + 0.5) * sh / h);
 		if (sy >= sh) sy = sh - 1;
+		const rowOffset = sy * sw * 4;
 		for (let x = 0; x < w; x++) {
-			let sx = Math.floor((x + 0.5) * sw / w);
-			if (sx >= sw) sx = sw - 1;
-			const si = (sy * sw + sx) * 4;
-			const di = (y * w + x) * 4;
-			const r = data[si] || 0;
-			const g = data[si + 1] || 0;
-			const b = data[si + 2] || 0;
-			rgba[di] = r;
-			rgba[di + 1] = g;
-			rgba[di + 2] = b;
+			const si = rowOffset + sxMap[x];
+			rgba[di] = data[si] || 0;
+			rgba[di + 1] = data[si + 1] || 0;
+			rgba[di + 2] = data[si + 2] || 0;
 			rgba[di + 3] = 255;
-			gray[y * w + x] = 0.299 * r + 0.587 * g + 0.114 * b;
+			di += 4;
 		}
 	}
-	return { w, h, rgba, gray };
+	return { w, h, rgba };
 }
 
 function localIndexX(devX: number): number {
@@ -316,40 +358,30 @@ interface GoldIntegral {
 	h: number;
 }
 
-/** 金色像素积分图，用于 O(1) 查询任意位置 26x26 的金色像素数 */
+/** 金色像素积分图，用于 O(1) 查询任意位置 26x26 的金色像素数（行累加 + 内联判定） */
 function buildGoldIntegral(img: DevImage): GoldIntegral {
 	const w = img.w;
 	const h = img.h;
-	const data = new Int32Array((w + 1) * (h + 1));
+	const stride = w + 1;
+	const data = new Int32Array(stride * (h + 1));
 	const rgba = img.rgba;
+	let pi = 0;
 	for (let y = 0; y < h; y++) {
+		const prevRow = y * stride;
+		const curRow = prevRow + stride;
+		let rowGold = 0;
 		for (let x = 0; x < w; x++) {
-			const i = (y * w + x) * 4;
-			const gold = isGoldPixel(rgba[i], rgba[i + 1], rgba[i + 2]) ? 1 : 0;
-			data[(y + 1) * (w + 1) + (x + 1)] =
-				data[y * (w + 1) + (x + 1)]
-				+ data[(y + 1) * (w + 1) + x]
-				- data[y * (w + 1) + x]
-				+ gold;
+			const r = rgba[pi];
+			const g = rgba[pi + 1];
+			const b = rgba[pi + 2];
+			pi += 4;
+			if (r > 85 && g > 65 && b < 205 && r - b > 18 && g - b > 8 && r >= g - 18) {
+				rowGold++;
+			}
+			data[curRow + x + 1] = data[prevRow + x + 1] + rowGold;
 		}
 	}
 	return { data, w, h };
-}
-
-/** 统计以 (devX, devY) 为中心、size x size 范围内的金色像素数 */
-function goldDensity(ii: GoldIntegral, devX: number, devY: number, size = 26): number {
-	const half = size >> 1;
-	const x0 = Math.max(0, localIndexX(devX) - half);
-	const y0 = Math.max(0, localIndexY(devY) - half);
-	const x1 = Math.min(ii.w, x0 + size);
-	const y1 = Math.min(ii.h, y0 + size);
-	if (x1 <= x0 || y1 <= y0) return 0;
-	const w = ii.w + 1;
-	const a = y0 * w + x0;
-	const b = y0 * w + x1;
-	const c = y1 * w + x0;
-	const d = y1 * w + x1;
-	return ii.data[d] - ii.data[b] - ii.data[c] + ii.data[a];
 }
 
 /** 节点图标的金色像素平均/最大亮度，用于判断“亮色=可进入 / 暗色=不可进入” */
@@ -361,22 +393,25 @@ function nodeBrightness(
 ): { gold: number; mean: number } {
 	const cx = localIndexX(devX);
 	const cy = localIndexY(devY);
+	const yStart = cy - radius < 0 ? 0 : cy - radius;
+	const yEnd = cy + radius >= img.h ? img.h - 1 : cy + radius;
+	const xStart = cx - radius < 0 ? 0 : cx - radius;
+	const xEnd = cx + radius >= img.w ? img.w - 1 : cx + radius;
+	const rgba = img.rgba;
+	const w = img.w;
 	let gold = 0;
 	let sum = 0;
-	for (let dy = -radius; dy <= radius; dy++) {
-		const y = cy + dy;
-		if (y < 0 || y >= img.h) continue;
-		for (let dx = -radius; dx <= radius; dx++) {
-			const x = cx + dx;
-			if (x < 0 || x >= img.w) continue;
-			const i = (y * img.w + x) * 4;
-			const r = img.rgba[i];
-			const g = img.rgba[i + 1];
-			const b = img.rgba[i + 2];
-			if (!isGoldPixel(r, g, b)) continue;
-			const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-			gold++;
-			sum += lum;
+	for (let y = yStart; y <= yEnd; y++) {
+		let i = (y * w + xStart) * 4;
+		for (let x = xStart; x <= xEnd; x++) {
+			const r = rgba[i];
+			const g = rgba[i + 1];
+			const b = rgba[i + 2];
+			i += 4;
+			if (r > 85 && g > 65 && b < 205 && r - b > 18 && g - b > 8 && r >= g - 18) {
+				gold++;
+				sum += 0.299 * r + 0.587 * g + 0.114 * b;
+			}
 		}
 	}
 	return { gold, mean: gold > 0 ? sum / gold : 0 };
@@ -389,54 +424,111 @@ function nodeBrightness(
 function goldCentroid(img: DevImage, devX: number, devY: number, radius = 15): { x: number; y: number } {
 	const cx = localIndexX(devX);
 	const cy = localIndexY(devY);
+	const yStart = cy - radius < 0 ? 0 : cy - radius;
+	const yEnd = cy + radius >= img.h ? img.h - 1 : cy + radius;
+	const xStart = cx - radius < 0 ? 0 : cx - radius;
+	const xEnd = cx + radius >= img.w ? img.w - 1 : cx + radius;
+	const rgba = img.rgba;
+	const w = img.w;
 	let n = 0;
 	let sx = 0;
 	let sy = 0;
-	for (let dy = -radius; dy <= radius; dy++) {
-		const y = cy + dy;
-		if (y < 0 || y >= img.h) continue;
-		for (let dx = -radius; dx <= radius; dx++) {
-			const x = cx + dx;
-			if (x < 0 || x >= img.w) continue;
-			const i = (y * img.w + x) * 4;
-			if (!isGoldPixel(img.rgba[i], img.rgba[i + 1], img.rgba[i + 2])) continue;
-			n++;
-			sx += x;
-			sy += y;
+	for (let y = yStart; y <= yEnd; y++) {
+		let i = (y * w + xStart) * 4;
+		for (let x = xStart; x <= xEnd; x++) {
+			const r = rgba[i];
+			const g = rgba[i + 1];
+			const b = rgba[i + 2];
+			i += 4;
+			if (r > 85 && g > 65 && b < 205 && r - b > 18 && g - b > 8 && r >= g - 18) {
+				n++;
+				sx += x;
+				sy += y;
+			}
 		}
 	}
 	if (n === 0) return { x: devX, y: devY };
 	return { x: sx / n + D6_MINIMAP_DEV_REGION.x0, y: sy / n + D6_MINIMAP_DEV_REGION.y0 };
 }
 
-/** 归一化互相关（NCC），对整体亮度/对比度变化不敏感 */
-function nccScore(img: DevImage, tpl: IconTemplate, cx: number, cy: number): number {
-	const size = tpl.size;
-	const half = size >> 1;
-	const ox = localIndexX(cx) - half;
-	const oy = localIndexY(cy) - half;
-	if (ox < 0 || oy < 0 || ox + size > img.w || oy + size > img.h) return -2;
-	const gray = img.gray;
-	const w = img.w;
-	let sum = 0;
-	for (let y = 0; y < size; y++) {
-		const row = (oy + y) * w + ox;
-		for (let x = 0; x < size; x++) sum += gray[row + x];
-	}
-	const mean = sum / (size * size);
-	let cov = 0;
-	let ss = 0;
-	for (let y = 0; y < size; y++) {
-		const row = (oy + y) * w + ox;
-		const trow = y * size;
-		for (let x = 0; x < size; x++) {
-			const d = gray[row + x] - mean;
-			cov += d * tpl.centered[trow + x];
-			ss += d * d;
+/** 仅为单个候选节点提取局部灰度块（覆盖 24x24 模板与 ±3 搜索半径，约 30x30 像素） */
+function buildNodeGrayPatch(img: DevImage, devCx: number, devCy: number, halfSpan = 15): LocalGrayPatch {
+	const lcx = localIndexX(devCx);
+	const lcy = localIndexY(devCy);
+	const x0 = Math.max(0, lcx - halfSpan);
+	const y0 = Math.max(0, lcy - halfSpan);
+	const x1 = Math.min(img.w, lcx + halfSpan);
+	const y1 = Math.min(img.h, lcy + halfSpan);
+	const pw = Math.max(0, x1 - x0);
+	const ph = Math.max(0, y1 - y0);
+	const gray = new Float32Array(pw * ph);
+	const rgba = img.rgba;
+	const iw = img.w;
+	let di = 0;
+	for (let y = y0; y < y1; y++) {
+		let si = (y * iw + x0) * 4;
+		for (let x = x0; x < x1; x++) {
+			gray[di++] = 0.299 * rgba[si] + 0.587 * rgba[si + 1] + 0.114 * rgba[si + 2];
+			si += 4;
 		}
 	}
-	const denom = Math.sqrt(ss * tpl.ss);
-	return denom > 1e-9 ? cov / denom : -2;
+	return { x0, y0, w: pw, h: ph, gray };
+}
+
+/** 粗搜用隔行隔列单遍 NCC（12x12 = 144 像素，计算量为 24x24 的 1/4） */
+function nccScorePatchCoarse(patch: LocalGrayPatch, tpl: IconTemplate, cx: number, cy: number): number {
+	const size = tpl.size;
+	const half = size >> 1;
+	const ox = localIndexX(cx) - half - patch.x0;
+	const oy = localIndexY(cy) - half - patch.y0;
+	if (ox < 0 || oy < 0 || ox + size > patch.w || oy + size > patch.h) return -2;
+	const gray = patch.gray;
+	const pw = patch.w;
+	const tnorm = tpl.coarseNormCentered;
+	const count = half * half;
+	let sum = 0;
+	let sumSq = 0;
+	let cov = 0;
+	let ti = 0;
+	for (let y = 0; y < size; y += 2) {
+		let gi = (oy + y) * pw + ox;
+		for (let x = 0; x < size; x += 2) {
+			const v = gray[gi];
+			gi += 2;
+			sum += v;
+			sumSq += v * v;
+			cov += v * tnorm[ti++];
+		}
+	}
+	const ss = sumSq - (sum * sum) / count;
+	return ss > 1e-9 ? cov / Math.sqrt(ss) : -2;
+}
+
+/** 单遍归一化互相关（NCC）：模板已零均值且单位化，一次循环同时求 sum / sumSq / cov */
+function nccScorePatch(patch: LocalGrayPatch, tpl: IconTemplate, cx: number, cy: number): number {
+	const size = tpl.size;
+	const half = size >> 1;
+	const ox = localIndexX(cx) - half - patch.x0;
+	const oy = localIndexY(cy) - half - patch.y0;
+	if (ox < 0 || oy < 0 || ox + size > patch.w || oy + size > patch.h) return -2;
+	const gray = patch.gray;
+	const pw = patch.w;
+	const tnorm = tpl.normCentered;
+	let sum = 0;
+	let sumSq = 0;
+	let cov = 0;
+	let ti = 0;
+	for (let y = 0; y < size; y++) {
+		let gi = (oy + y) * pw + ox;
+		for (let x = 0; x < size; x++) {
+			const v = gray[gi++];
+			sum += v;
+			sumSq += v * v;
+			cov += v * tnorm[ti++];
+		}
+	}
+	const ss = sumSq - (sum * sum) / (size * size);
+	return ss > 1e-9 ? cov / Math.sqrt(ss) : -2;
 }
 
 function buildPatchGradient(img: DevImage, cx: number, cy: number, size: number): GradientField | null {
@@ -445,9 +537,15 @@ function buildPatchGradient(img: DevImage, cx: number, cy: number, size: number)
 	const oy = localIndexY(cy) - half;
 	if (ox < 0 || oy < 0 || ox + size > img.w || oy + size > img.h) return null;
 	const gray = new Float32Array(size * size);
+	const rgba = img.rgba;
+	const iw = img.w;
+	let di = 0;
 	for (let y = 0; y < size; y++) {
-		const row = (oy + y) * img.w + ox;
-		for (let x = 0; x < size; x++) gray[y * size + x] = img.gray[row + x];
+		let si = ((oy + y) * iw + ox) * 4;
+		for (let x = 0; x < size; x++) {
+			gray[di++] = 0.299 * rgba[si] + 0.587 * rgba[si + 1] + 0.114 * rgba[si + 2];
+			si += 4;
+		}
 	}
 	return buildGradientField(gray, size);
 }
@@ -554,17 +652,27 @@ function findPin(img: DevImage): D6MapPin | null {
 	const y1 = 225;
 	const w = x1 - x0 + 1;
 	const h = y1 - y0 + 1;
+	const lx0 = x0 - D6_MINIMAP_DEV_REGION.x0;
+	const ly0 = y0 - D6_MINIMAP_DEV_REGION.y0;
 	const mask = new Uint8Array(w * h);
+	const rgba = img.rgba;
+	const iw = img.w;
+	let pinPixels = 0;
 	for (let y = 0; y < h; y++) {
+		let si = ((ly0 + y) * iw + lx0) * 4;
+		const rowOff = y * w;
 		for (let x = 0; x < w; x++) {
-			const lx = x0 + x - D6_MINIMAP_DEV_REGION.x0;
-			const ly = y0 + y - D6_MINIMAP_DEV_REGION.y0;
-			const i = (ly * img.w + lx) * 4;
-			if (isPinPixel(img.rgba[i], img.rgba[i + 1], img.rgba[i + 2])) {
-				mask[y * w + x] = 1;
+			const r = rgba[si];
+			const g = rgba[si + 1];
+			const b = rgba[si + 2];
+			si += 4;
+			if (r > 205 && g > 160 && b < 210 && r - b > 45 && g - b > 25) {
+				mask[rowOff + x] = 1;
+				pinPixels++;
 			}
 		}
 	}
+	if (pinPixels < 40) return null;
 	const seen = new Uint8Array(w * h);
 	let best: { n: number; sx: number; sy: number } | null = null;
 	const queue = new Int32Array(w * h);
@@ -612,34 +720,50 @@ function findPin(img: DevImage): D6MapPin | null {
 /**
  * 扫描小地图，只返回“当前可选（亮色）”的节点。
  *
- * 性能优化（Rhino 上 NCC 很贵）：
- * 1. 只扫描金色密度找候选，步长 2，减少一半候选点；
+ * 性能优化（Rhino 上循环与函数调用都很贵）：
+ * 1. 内联金色积分图查询找候选，步长 2；
  * 2. 先算每个候选的平均亮度，只保留亮色（可进入）节点；
  * 3. 亮色节点按行分组，只取最上面一排（当前节点徽记在下方）；
- * 4. 只对这一排做亮色模板 NCC：先对每个模板做 3×3 粗搜排名，取前两名再做 ±3 精搜；
- *    暗色模板和整张图的模板匹配都不做。
+ * 4. 仅对这一排按需提取 30×30 局部灰度并做单遍 NCC：
+ *    先对每个模板做 3×3 粗搜（-3/0/3）排名；若第一名高置信且领先明显，
+ *    只对第一名在最佳粗搜点周围 ±2 精搜；否则对前两名做完整 ±3 精搜（跳过已算粗搜点）。
  */
 function detectNodes(img: DevImage): D6MapNode[] {
 	const ii = buildGoldIntegral(img);
+	const iiData = ii.data;
+	const iw = ii.w;
+	const ih = ii.h;
+	const stride = iw + 1;
 	const x0 = D6_MINIMAP_DEV_REGION.x0;
-	const x1 = D6_MINIMAP_DEV_REGION.x1;
 	const y0 = D6_MINIMAP_DEV_REGION.y0;
-	const y1 = D6_MINIMAP_DEV_REGION.y1;
+	const lyMax = ih - 21;
+	const lxMax = iw - 11;
 	const candidates: { x: number; y: number; gold: number }[] = [];
-	for (let y = y0 + 20; y <= y1 - 20; y += 2) {
-		for (let x = x0 + 10; x <= x1 - 10; x += 2) {
-			const gold = goldDensity(ii, x, y);
-			if (gold >= CANDIDATE_MIN_GOLD) candidates.push({ x, y, gold });
+	for (let ly = 20; ly <= lyMax; ly += 2) {
+		const gy0 = ly > 13 ? ly - 13 : 0;
+		const gy1 = gy0 + 26 < ih ? gy0 + 26 : ih;
+		const rowTop = gy0 * stride;
+		const rowBot = gy1 * stride;
+		for (let lx = 10; lx <= lxMax; lx += 2) {
+			const gx0 = lx > 13 ? lx - 13 : 0;
+			const gx1 = gx0 + 26 < iw ? gx0 + 26 : iw;
+			const gold = iiData[rowBot + gx1] - iiData[rowTop + gx1] - iiData[rowBot + gx0] + iiData[rowTop + gx0];
+			if (gold >= CANDIDATE_MIN_GOLD) candidates.push({ x: x0 + lx, y: y0 + ly, gold });
 		}
 	}
 	candidates.sort((a, b) => b.gold - a.gold);
 	const picked: { x: number; y: number; gold: number }[] = [];
 	for (let i = 0; i < candidates.length; i++) {
 		const c = candidates[i];
-		if (picked.some(p => Math.abs(p.x - c.x) <= CANDIDATE_NMS_RADIUS && Math.abs(p.y - c.y) <= CANDIDATE_NMS_RADIUS)) {
-			continue;
+		let overlap = false;
+		for (let j = 0; j < picked.length; j++) {
+			const p = picked[j];
+			if (Math.abs(p.x - c.x) <= CANDIDATE_NMS_RADIUS && Math.abs(p.y - c.y) <= CANDIDATE_NMS_RADIUS) {
+				overlap = true;
+				break;
+			}
 		}
-		picked.push(c);
+		if (!overlap) picked.push(c);
 	}
 
 	interface Candidate {
@@ -695,44 +819,71 @@ function detectNodes(img: DevImage): D6MapNode[] {
 	const choiceRow = rows[0];
 	choiceRow.items.sort((a, b) => a.cx - b.cx);
 
-	// 只对这一排做亮色模板 NCC
+	// 只对这一排做局部灰度提取 + 亮色模板单遍 NCC
 	const templates = ICON_TEMPLATES;
 	const nodes: D6MapNode[] = [];
+	// 偏移 -2/0/2 距 [-3..+3] 内任意整数点都不超过 1px，既覆盖中心 (0,0) 又避免 ±3 跨度过大漏峰
+	const coarseOffsets = [-2, 0, 2];
 	for (let k = 0; k < choiceRow.items.length; k++) {
 		const c = choiceRow.items[k];
-		// 两段式 NCC：先对每个模板做 3×3 粗搜（偏移 -3/0/3）得到排名，取前两名再做 ±3 精搜。
-		// 不能只按中心点排名：图标重心偏 2~3px 时，正确模板在中心分数可能很低，
-		// 会被排到第三名之后，导致绽放等图标被误判为 unknown。
-		const coarseOffsets = [-3, 0, 3];
-		const coarseRanked: { score: number; template: IconTemplate }[] = [];
+		const patch = buildNodeGrayPatch(img, c.cx, c.cy, 15);
+		const coarseRanked: { score: number; ox: number; oy: number; template: IconTemplate }[] = [];
 		for (let t = 0; t < templates.length; t++) {
 			const tpl = templates[t];
 			let coarseScore = -2;
+			let bestOx = 0;
+			let bestOy = 0;
 			for (let oy = 0; oy < coarseOffsets.length; oy++) {
+				const dy = coarseOffsets[oy];
 				for (let ox = 0; ox < coarseOffsets.length; ox++) {
-					const score = nccScore(img, tpl, c.cx + coarseOffsets[ox], c.cy + coarseOffsets[oy]);
-					if (score > coarseScore) coarseScore = score;
+					const dx = coarseOffsets[ox];
+					const score = nccScorePatchCoarse(patch, tpl, c.cx + dx, c.cy + dy);
+					if (score > coarseScore) {
+						coarseScore = score;
+						bestOx = dx;
+						bestOy = dy;
+					}
 				}
 			}
-			coarseRanked.push({ score: coarseScore, template: tpl });
+			coarseRanked.push({ score: coarseScore, ox: bestOx, oy: bestOy, template: tpl });
 		}
 		coarseRanked.sort((a, b) => b.score - a.score);
-		const refineCount = Math.min(2, coarseRanked.length);
+		const top0 = coarseRanked[0];
 		let best: { score: number; template: IconTemplate; x: number; y: number } = {
 			score: -2,
-			template: coarseRanked[0].template,
+			template: top0.template,
 			x: c.cx,
 			y: c.cy,
 		};
-		for (let r = 0; r < refineCount; r++) {
-			const tpl = coarseRanked[r].template;
-			for (let dy = -3; dy <= 3; dy++) {
-				for (let dx = -3; dx <= 3; dx++) {
-					const score = nccScore(img, tpl, c.cx + dx, c.cy + dy);
-					if (score > best.score) {
-						best = { score, template: tpl, x: c.cx + dx, y: c.cy + dy };
+		// 先在第一名最佳粗搜点周围 ±1（最多 9 点）做完整 24x24 精搜；
+		// 若已达到高置信 (>=0.90)，直接结束，省掉其余偏移与第二名模板的全量精搜。
+		const fMinDy = Math.max(-3, top0.oy - 1);
+		const fMaxDy = Math.min(3, top0.oy + 1);
+		const fMinDx = Math.max(-3, top0.ox - 1);
+		const fMaxDx = Math.min(3, top0.ox + 1);
+		for (let dy = fMinDy; dy <= fMaxDy; dy++) {
+			for (let dx = fMinDx; dx <= fMaxDx; dx++) {
+				const score = nccScorePatch(patch, top0.template, c.cx + dx, c.cy + dy);
+				if (score > best.score) {
+					best = { score, template: top0.template, x: c.cx + dx, y: c.cy + dy };
+				}
+			}
+		}
+		if (best.score < 0.90) {
+			const refineCount = Math.min(2, coarseRanked.length);
+			for (let r = 0; r < refineCount; r++) {
+				const tpl = coarseRanked[r].template;
+				const skipFastBox = r === 0;
+				for (let dy = -3; dy <= 3; dy++) {
+					for (let dx = -3; dx <= 3; dx++) {
+						if (skipFastBox && dy >= fMinDy && dy <= fMaxDy && dx >= fMinDx && dx <= fMaxDx) continue;
+						const score = nccScorePatch(patch, tpl, c.cx + dx, c.cy + dy);
+						if (score > best.score) {
+							best = { score, template: tpl, x: c.cx + dx, y: c.cy + dy };
+						}
 					}
 				}
+				if (best.score >= 0.90) break;
 			}
 		}
 		let type: D6MapNodeType = best.score >= TYPE_MIN_SCORE ? best.template.type : 'unknown';
